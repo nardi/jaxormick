@@ -1,0 +1,40 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Run benchmarks
+        # The empty `addopts` drops the `--benchmark-skip` that plain test runs use.
+        run: uv run pytest benchmarks -o addopts="" --benchmark-only --benchmark-json=benchmark.json -p no:cacheprovider
+
+      - name: Compare with baseline
+        # Shared runners are noisy, so this comparison only warns and never fails the job.
+        continue-on-error: true
+        run: uv run python benchmarks/compare.py benchmark.json benchmarks/baseline.json
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark
+          path: benchmark.json

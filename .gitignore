@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# MkDocs build output
+site/
+
+# Test and benchmark output
+.benchmarks/
+.coverage
+coverage.xml
+.hypothesis/

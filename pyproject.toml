@@ -1,0 +1,50 @@
+[project]
+name = "jaxormick"
+version = "0.0.1"
+description = "McCormick relaxations of JAX functions"
+readme = "README.md"
+authors = [{ name = "Nardi Lam", email = "mail@nardilam.nl" }]
+requires-python = ">=3.11"
+dependencies = [
+    "jax>=0.10",
+    "equinox>=0.11",
+    "jaxtyping>=0.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6",
+    "markdown-pytest>=0.6.6",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=0.27",
+    "pytest>=9.1.0",
+    "pytest-benchmark>=5",
+    "pytest-cov>=7",
+    "ruff>=0.15.17",
+    "ty>=0.0.59",
+]
+
+[tool.pytest.ini_options]
+# The markdown docs and the README are collected by markdown-pytest, which runs code
+# blocks marked with a `<!-- name: test_... -->` comment.
+testpaths = ["tests", "docs", "README.md"]
+# Benchmarks run separately, so a plain `pytest` stays fast and their timing loops do
+# not count towards coverage.
+addopts = "--benchmark-skip"
+
+[tool.coverage.run]
+branch = true
+source = ["jaxormick"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise AssertionError", "@overload"]
+
+[tool.ruff.lint]
+ignore = ["F722"]
+select = ["E4", "E7", "E9", "F", "I"]
