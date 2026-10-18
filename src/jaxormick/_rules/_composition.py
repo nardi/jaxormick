@@ -198,7 +198,7 @@ def convex_envelope_of_convex_concave(
 
     The tangent point solves `function(t) + function'(t)·(upper − t) = function(upper)`.
     When `tangent_point` is not given, a fixed number of bisection steps on
-    `[lower, inflection]` brackets it as `left ≤ t ≤ right`. The bracket gives two convex
+    `[lower, inflection]` brackets it as `left ≤ t ≤ right`. The bracket defines two convex
     underestimators that are valid for any bracket around `t`. One follows the function
     up to `left` and then its tangent there. The other is the line through
     `(upper, function(upper))` with slope `function'(right)`, which is at least as steep

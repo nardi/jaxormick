@@ -113,7 +113,7 @@ def jacobian_with_value(
     """Returns the Jacobian of `function` in its first argument, together with its value.
 
     Forward mode pushes unit vectors through the linearized function, batched with
-    `jax.vmap`. For relaxations it gives much smaller XLA programs than reverse mode,
+    `jax.vmap`. For relaxations it produces much smaller XLA programs than reverse mode,
     because the many selections and comparisons of the rules store nothing for a
     backward pass. Reverse mode is cheaper when the variables far outnumber the outputs.
     """

@@ -87,7 +87,7 @@ def maximum(left: Relaxation, right: Relaxation) -> Relaxation:
     """Relaxes `max(left, right)`.
 
     The concave side comes from `max(a, b) = (a + b + |a − b|) / 2`, relaxed with the
-    rules of `add` and `abs`. That formula also gives a convex side. The maximum of the
+    rules of `add` and `abs`. That formula also defines a convex side. The maximum of the
     two convex sides is another one, often tighter, so the result takes the larger.
     """
     difference = add(left, negate(right))
