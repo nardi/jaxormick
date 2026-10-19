@@ -5,7 +5,7 @@
 | Operation | JAX functions | Relaxation |
 | --- | --- | --- |
 | `neg`, `add`, `sub` | `-x`, `x + y`, `x - y` | Exact composition of the sides |
-| `mul` | `x * y` | Scaling when one side is constant, McCormick's product rule otherwise |
+| `mul` | `x * y` | Scaling when one side is constant. A product of powers of the same value, such as `x * x`, becomes one power. McCormick's product rule otherwise |
 | `div` | `x / y` | Product with the reciprocal. When the interval of `y` contains zero, the result has infinite bounds |
 | `dot_general` | `x @ y`, `jnp.dot`, `jnp.einsum` | Scaling with a constant matrix, the product rule per term when both operands depend on the variables |
 | `reduce_sum`, `cumsum` | `jnp.sum`, `jnp.cumsum` | Exact composition of the sides |
@@ -14,7 +14,7 @@
 
 | Operation | JAX functions | Relaxation |
 | --- | --- | --- |
-| `integer_pow`, `square` | `x ** 2`, `x ** 3`, `jnp.square` | Envelopes. Even powers are convex, odd powers use the envelope of [Liberti and Pantelides (2003)](https://doi.org/10.1023/A:1021924706467) when the interval contains zero. Negative powers have infinite bounds when the interval contains zero |
+| `integer_pow`, `square` | `x ** 2`, `x ** 3`, `jnp.square` | Envelopes. Even powers are convex, odd powers use the envelope of [Liberti and Pantelides (2003)](https://doi.org/10.1023/A:1021924706467) when the interval contains zero. Negative powers have infinite bounds when the interval contains zero. A power of a power, such as `(x ** 2) ** 2`, becomes one power |
 | `pow` | `x ** 1.5` | Constant exponents only, on positive intervals for non-integer exponents |
 | `sqrt`, `rsqrt` | `jnp.sqrt`, `lax.rsqrt` | Envelopes on nonnegative and positive intervals |
 

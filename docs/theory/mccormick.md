@@ -90,9 +90,13 @@ concave side uses the two other corner inequalities.
 The product rule treats \(u\) and \(w\) as independent. For \(x \cdot x\) on
 \([-1, 1]\), it returns the envelope of \(u w\) on \([-1, 1]^2\), whose value at
 \(u = w = 0\) is \(-1\). The univariate rule for \(x^2\) uses that both factors are
-equal and returns the exact value \(0\). `jaxormick` relaxes `x ** 2` with the
-univariate rule, so a square written as a power has tighter bounds than one written as a
-product.
+equal and returns the exact value \(0\).
+
+`jaxormick` therefore rewrites a product of two powers of the same factor, such as
+\(x \cdot x\) or \(x^2 \cdot x\), as a single power before it relaxes the product. It
+does the same for a power of a power, such as \((x^2)^2\). The univariate rule returns
+the envelope of a power, and no other relaxation of it is tighter. A product of
+different factors, such as \(x (1 - x)\), still goes through the product rule.
 
 ## A worked example
 

@@ -10,6 +10,7 @@ from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Literal, Var
 
 from ._errors import UnsupportedPrimitiveError
 from ._relaxation import Relaxation
+from ._rewrite import EquationTable
 from ._rules import RULES, Operand, as_relaxation, is_relaxed
 
 CALL_JAXPR_PARAMS = {
@@ -48,9 +49,21 @@ def eval_jaxpr(
 
     environment.update(zip(jaxpr.constvars, consts, strict=True))
     environment.update(zip(jaxpr.invars, arguments, strict=True))
+    table = EquationTable()
     for equation in jaxpr.eqns:
-        inputs = [read(atom) for atom in equation.invars]
-        outputs = eval_equation(equation, inputs)
+        earlier = table.earlier_outputs(equation)
+        if earlier is not None:
+            # An equal equation already ran, so its outputs are reused.
+            table.merge(equation, earlier)
+            outputs = [environment[variable] for variable in earlier]
+        else:
+            inputs = [read(atom) for atom in equation.invars]
+            evaluated = equation
+            if any(is_relaxed(value) for value in inputs):
+                evaluated = table.rewrite(equation)
+                inputs = [read(atom) for atom in evaluated.invars]
+            outputs = eval_equation(evaluated, inputs)
+            table.record(equation, evaluated)
         environment.update(zip(equation.outvars, outputs, strict=True))
     return [read(atom) for atom in jaxpr.outvars]
 

@@ -51,6 +51,12 @@ an operand, the interpreter calls the rule of its primitive. Values that do not 
 on the variables, such as constants and parameters, stay ordinary arrays and run through
 JAX as usual.
 
+JAX does not merge repeated equations, so `x[0] * x[0]` slices `x` twice and multiplies
+two different variables. The interpreter merges equations that have the same primitive,
+parameters and operands, so that both factors become the same variable. It then rewrites
+a product of two powers of the same variable as one `integer_pow`, and a power of a
+power as well. Equations with side effects, such as `jax.debug.print`, are never merged.
+
 The rules are written in `jax.numpy`, so the relaxed function is itself a JAX function.
 Every JAX transformation applies to it.
 

@@ -66,20 +66,21 @@ them, so XLA removes them from the compiled program.
 
 The relaxation depends on how the function is written, not only on its values. Each rule
 sees only its own operands, so it relaxes a variable that occurs twice as if the two
-occurrences could differ. A square written as a product has a much looser relaxation
-than a power.
+occurrences could differ. The interpreter handles the simplest case itself. It relaxes
+`x * x` as `x ** 2`, and `x * x * x` as `x ** 3`.
 
 <!-- name: test_basic -->
 ```python
 product = jmk.relax(lambda x: x * x)(jnp.array(0.0), jnp.array(-1.0), jnp.array(1.0))
 power = jmk.relax(lambda x: x**2)(jnp.array(0.0), jnp.array(-1.0), jnp.array(1.0))
-assert product.convex == -1.0 and product.lower == -1.0
-assert power.convex == 0.0 and power.lower == 0.0
+assert product.convex == power.convex == 0.0
+assert product.lower == power.lower == 0.0
 ```
 
-These rewrites tighten the relaxations:
+Other forms need rewriting by hand:
 
-- Write `x ** 2` instead of `x * x`, and `x ** 3` instead of `x * x * x`.
+- Keep the factors of a power next to each other. `x * x * 2` becomes a power, but
+  `2 * x * x` multiplies `2 * x` by `x`, and the product rule relaxes that.
 - Collect occurrences of a variable. `x * (1 - x)` relaxes worse than
   `0.25 - (x - 0.5) ** 2`.
 - Use `jnp.tanh`, `jax.nn.sigmoid` and `jnp.log1p` directly instead of building them
