@@ -23,11 +23,15 @@
 
 | Operation | JAX functions | Relaxation |
 | --- | --- | --- |
-| `exp`, `expm1` | `jnp.exp`, `jnp.expm1` | Envelopes |
-| `log`, `log1p` | `jnp.log`, `jnp.log1p` | Envelopes. An interval that reaches the edge of the domain has a lower bound of `-inf` |
+| `exp`, `expm1`, `exp2` | `jnp.exp`, `jnp.expm1`, `jnp.exp2` | Envelopes |
+| `log`, `log1p`, `log2` | `jnp.log`, `jnp.log1p`, `jnp.log2` | Envelopes. An interval that reaches the edge of the domain has a lower bound of `-inf` |
 | `abs` | `jnp.abs` | Envelopes |
 | `tanh`, `logistic` | `jnp.tanh`, `jax.nn.sigmoid` | Envelopes of convex-concave functions |
-| `sin`, `cos` | `jnp.sin`, `jnp.cos` | Envelopes on intervals of any width |
+| `sinh`, `cosh` | `jnp.sinh`, `jnp.cosh` | Envelopes |
+| `asinh`, `atan`, `cbrt` | `jnp.arcsinh`, `jnp.arctan`, `jnp.cbrt` | Envelopes of convex-concave functions |
+| `asin`, `acos`, `acosh`, `atanh` | `jnp.arcsin`, `jnp.arccos`, `jnp.arccosh`, `jnp.arctanh` | Envelopes on intervals inside the open domain. An interval that reaches the edge of the domain only gets bounds, which are infinite for `atanh` |
+| `erf`, `erfc`, `erf_inv` | `jax.scipy.special.erf`, `jax.scipy.special.erfc`, `jax.scipy.special.erfinv` | Envelopes. `erf_inv` handles the edge of its domain like `atanh` |
+| `sin`, `cos`, `tan` | `jnp.sin`, `jnp.cos`, `jnp.tan` | Envelopes on intervals of any width. `tan` has infinite bounds on intervals that reach a pole |
 | `max`, `min` | `jnp.maximum`, `jnp.minimum`, `jnp.clip`, `jax.nn.relu` | Through \(\max(a, b) = (a + b + \lvert a - b \rvert) / 2\), with the larger of two convex sides |
 
 Functions such as `jax.nn.softplus` and `jax.nn.silu` relax through these rules, since
@@ -80,6 +84,5 @@ and through `lax.custom_root` from `jax>=0.11` on.
   contain comparisons and raise `UnsupportedPrimitiveError`.
 - **Tightened bounds in loops and branches.** `tighten_bounds=True` tightens the outputs
   of `lax.scan` and `lax.cond`, but not the values inside their bodies.
-- **Other functions.** `jnp.arctan`, `jnp.sinh`, `jnp.cosh`, `jax.scipy.special.erf` and
-  other functions without a rule raise `UnsupportedPrimitiveError`. [Custom
-  rules](extending.md) shows how to add one.
+- **Other functions.** Functions without a rule raise `UnsupportedPrimitiveError`.
+  [Custom rules](extending.md) shows how to add one.

@@ -1,6 +1,6 @@
-"""Rules for `sin` and `cos`.
+"""Rules for `sin`, `cos`, `tan` and their inverses.
 
-Both rules reduce to the convex envelope of `cos`.
+The rules for `sin` and `cos` reduce to the convex envelope of `cos`.
 `sin(x) = cos(x − π/2)` and `−cos(x) = cos(x + π)`, so the concave envelope of `cos` and
 both envelopes of `sin` follow by shifting the interval. The construction follows the
 case analysis of Mitsos, Chachuat and Barton (2009).
@@ -14,7 +14,16 @@ import jax.numpy as jnp
 from jax.extend.core import Primitive
 
 from .._relaxation import Relaxation
-from ._composition import as_relaxation, compose, convex_envelope_of_convex_concave
+from ._arithmetic import negate
+from ._composition import (
+    as_relaxation,
+    compose,
+    convex_envelope_of_convex_concave,
+    interval_only,
+    select,
+    substitute,
+)
+from ._elementary import concave_convex, convex_concave, increasing_on_open_domain
 from ._registry import Operand, Params, relaxes
 
 
@@ -135,3 +144,62 @@ def sin_rule(
     """Relaxes `sin` as `cos(x − π/2)`, which is exact since the shift is constant."""
     operand = as_relaxation(operands[0])
     return cos_relaxation(jax.tree.map(lambda field: field - math.pi / 2, operand))
+
+
+@relaxes("tan")
+def tan_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `tan`, which is increasing, concave and then convex on each branch.
+
+    The branches are `(kπ − π/2, kπ + π/2)` for integers `k`. Shifting the operand by
+    `kπ` moves the branch around its midpoint to `(−π/2, π/2)` and leaves `tan`
+    unchanged. An interval that reaches a pole gets infinite bounds.
+    """
+    operand = as_relaxation(operands[0])
+    branch = jnp.round((operand.lower + operand.upper) / (2 * math.pi))
+    shifted = jax.tree.map(lambda field: field - math.pi * branch, operand)
+    is_inside = (shifted.lower > -math.pi / 2) & (shifted.upper < math.pi / 2)
+    safe = substitute(shifted, is_inside, 0.0)
+    unbounded = interval_only(
+        jnp.full_like(operand.lower, -jnp.inf), jnp.full_like(operand.upper, jnp.inf)
+    )
+    return select(is_inside, concave_convex(safe, jnp.tan, increasing=True), unbounded)
+
+
+def asin_relaxation(operand: Relaxation) -> Relaxation:
+    """Relaxes `asin(operand)`, which is concave below zero and convex above it."""
+    return increasing_on_open_domain(
+        operand,
+        lambda safe: concave_convex(safe, jnp.asin, increasing=True),
+        jnp.asin,
+        -1.0,
+        1.0,
+    )
+
+
+@relaxes("asin")
+def asin_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `asin`, which is concave below zero and convex above it."""
+    return asin_relaxation(as_relaxation(operands[0]))
+
+
+@relaxes("acos")
+def acos_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `acos` as `π/2 − asin(x)`, which is exact since the shift is constant."""
+    operand = as_relaxation(operands[0])
+    return jax.tree.map(
+        lambda field: math.pi / 2 + field, negate(asin_relaxation(operand))
+    )
+
+
+@relaxes("atan")
+def atan_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `atan`, which is convex below zero and concave above it."""
+    return convex_concave(as_relaxation(operands[0]), jnp.atan, increasing=True)

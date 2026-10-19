@@ -68,6 +68,17 @@ interval.
   \(t\). For odd powers \(u^{2k+1}\), \(t\) is a fixed multiple of \(u^L\) ([Liberti and
   Pantelides, 2003](https://doi.org/10.1023/A:1021924706467)). Other functions find
   \(t\) by bisection.
+- When \(F\) is concave left of an inflection point and convex right of it, as
+  \(\sinh u\) and \(\arcsin u\) are, \(-F\) is convex-concave. The envelopes of \(F\)
+  are the negated envelopes of \(-F\).
+- When \(F\) is defined on an open interval, as \(\operatorname{artanh} u\) is on
+  \((-1, 1)\), the composition rule applies to intervals inside the domain. An interval
+  that reaches the edge only gets the bounds of \(F\) over the part inside the domain,
+  which are infinite where \(F\) is.
+- \(\tan\) has a branch \((k\pi - \pi/2, k\pi + \pi/2)\) for every integer \(k\), and
+  is concave-convex on each. Since \(\tan(u - k\pi) = \tan u\), shifting the interval
+  by \(k\pi\) moves it to the branch around zero. An interval that contains a pole gets
+  infinite bounds.
 - \(\sin\) and \(\cos\) switch between convex and concave pieces every half period.
   Their envelopes combine the convex-concave case with the minima and maxima inside the
   interval ([Mitsos, Chachuat and Barton, 2009](https://doi.org/10.1137/080717341)).

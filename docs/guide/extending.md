@@ -10,12 +10,13 @@ of its inputs. To find the primitive behind a function, print its jaxpr.
 ```python
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import digamma, gammaln
 
-print(jax.make_jaxpr(jnp.cosh)(1.0))
+print(jax.make_jaxpr(gammaln)(1.0))
 ```
 
-This prints `{ lambda ; a:f32[]. let b:f32[] = cosh a in (b,) }`, so `jnp.cosh` is the
-primitive `cosh`, which has no rule yet.
+This prints `{ lambda ; a:f32[]. let b:f32[] = lgamma a in (b,) }`, so
+`jax.scipy.special.gammaln` is the primitive `lgamma`, which has no rule yet.
 
 ## A rule for a convex function
 
@@ -24,26 +25,27 @@ A rule is a function of the primitive, its operands and its parameters, as descr
 objects and the others as arrays. The interpreter calls the rule only when at least one
 operand is a `Relaxation`.
 
-`cosh` is convex with its minimum at zero. `jaxormick.compose_convex` relaxes a convex
-univariate function, given the point of the interval where the function is smallest.
+`lgamma` is convex on positive arguments, with its minimum near 1.4616.
+`jaxormick.compose_convex` relaxes a convex univariate function, given the point of the
+interval where the function is smallest. The rule below assumes a positive interval.
 
 <!-- name: test_extending -->
 ```python
 import jaxormick as jmk
 
 
-def cosh_rule(primitive, operands, params):
+def lgamma_rule(primitive, operands, params):
     operand = jmk.as_relaxation(operands[0])
-    smallest = jnp.clip(0.0, operand.lower, operand.upper)
-    return jmk.compose_convex(operand, jnp.cosh, smallest)
+    smallest = jnp.clip(1.4616321, operand.lower, operand.upper)
+    return jmk.compose_convex(operand, gammaln, smallest)
 
 
-jmk.register_rule("cosh", cosh_rule)
+jmk.register_rule("lgamma", lgamma_rule)
 
-relaxation = jmk.relax(lambda x: jnp.cosh(x) - x)(
-    jnp.array(0.5), jnp.array(-1.0), jnp.array(2.0)
+relaxation = jmk.relax(lambda x: gammaln(x) - x)(
+    jnp.array(2.5), jnp.array(0.5), jnp.array(3.0)
 )
-assert relaxation.convex <= jnp.cosh(0.5) - 0.5 <= relaxation.concave
+assert relaxation.convex <= gammaln(2.5) - 2.5 <= relaxation.concave
 ```
 
 `jaxormick.compose_concave` does the same for concave functions, given the point where
@@ -55,21 +57,20 @@ array, with their minimizer and maximizer and the interval bounds of the result.
 
 A rule can also build the `Relaxation` directly. Its fields are the interval bounds and
 the values of the relaxations at the reference point, all as arrays of the output's
-shape. A rule for `atan`, which is increasing, concave right of zero and convex left of
-it, could start with the interval bounds alone, using the bounds as constant
-relaxations:
+shape. A rule for `digamma`, which is increasing and concave on positive arguments,
+could start with the interval bounds alone, using the bounds as constant relaxations:
 
 <!-- name: test_extending -->
 ```python
-def atan_bounds_rule(primitive, operands, params):
+def digamma_bounds_rule(primitive, operands, params):
     operand = jmk.as_relaxation(operands[0])
-    lower, upper = jnp.arctan(operand.lower), jnp.arctan(operand.upper)
+    lower, upper = digamma(operand.lower), digamma(operand.upper)
     return jmk.Relaxation(lower=lower, upper=upper, convex=lower, concave=upper)
 
 
-jmk.register_rule("atan", atan_bounds_rule)
-low, high = jmk.interval(jnp.arctan)(jnp.array(-1.0), jnp.array(1.0))
-assert jnp.isclose(low, -jnp.pi / 4) and jnp.isclose(high, jnp.pi / 4)
+jmk.register_rule("digamma", digamma_bounds_rule)
+low, high = jmk.interval(digamma)(jnp.array(1.0), jnp.array(2.0))
+assert jnp.isclose(high - low, 1.0)
 ```
 
 Constant relaxations are valid but loose, which makes them a safe first version of a
@@ -95,8 +96,8 @@ def check(function, lower, upper, count=1000):
     assert jnp.all(relaxations.concave <= relaxations.upper)
 
 
-check(jnp.cosh, jnp.array(-1.0), jnp.array(2.0))
-check(jnp.arctan, jnp.array(-3.0), jnp.array(1.0))
+check(gammaln, jnp.array(0.5), jnp.array(3.0))
+check(digamma, jnp.array(1.0), jnp.array(3.0))
 ```
 
 Registering a rule for a primitive that already has one replaces it. The dictionary
@@ -106,4 +107,4 @@ Registering a rule for a primitive that already has one replaces it. The diction
 
 For a primitive created with `jax.extend.core.Primitive`, pass the primitive itself to
 `register_rule`. Its rule can often use the monotonicity and convexity of the function
-it computes, as the `cosh` rule above does.
+it computes, as the `lgamma` rule above does.

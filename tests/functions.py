@@ -102,5 +102,18 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
     "softplus": lambda x: jax.nn.softplus(x[0] * x[1]),
     "clip": lambda x: jnp.clip(x[0] + x[1], -1.0, 0.5),
     "stacked": lambda x: jnp.stack([x[0] ** 2, jnp.ones(()), x[1]]) @ jnp.arange(3.0),
+    "atan": lambda x: jnp.arctan(2 * x[0] - x[1]),
+    "asin_acos": lambda x: jnp.arcsin(x[0] / 2.5) + jnp.arccos(x[1] / 2.5),
+    "sinh_cosh": lambda x: jnp.sinh(x[0]) - jnp.cosh(x[1] - 0.5),
+    "asinh_acosh": lambda x: jnp.arcsinh(3 * x[0]) * jnp.arccosh(x[1] + 3.5),
+    "atanh": lambda x: jnp.arctanh((x[0] + x[1]) / 4.5),
+    "tan": lambda x: jnp.tan(0.35 * x[0] + 0.3 * x[1]),
+    "shifted_tan": lambda x: jnp.tan(0.2 * x[0] + 3.0),
+    "cbrt": lambda x: jnp.cbrt(x[0] - 0.5 * x[1]),
+    "exp2_log2": lambda x: jnp.exp2(x[0]) + jnp.log2(x[1] + 3),
+    "erf_erfc": lambda x: (
+        jax.scipy.special.erf(2 * x[0]) - jax.scipy.special.erfc(x[1])
+    ),
+    "erf_inv": lambda x: jax.scipy.special.erfinv(x[0] / 2.5) * x[1],
 }
 """Functions that together exercise every rule."""
