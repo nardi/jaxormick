@@ -75,9 +75,16 @@ TIE_TOLERANCE = 16
 
 
 def tie_tolerance(first: Array, second: Array) -> Array:
-    """Returns a few ulps of the larger magnitude of the arguments, or zero if infinite."""
-    epsilon = jnp.finfo(jnp.result_type(first, second)).eps
-    tolerance = TIE_TOLERANCE * epsilon * jnp.maximum(jnp.abs(first), jnp.abs(second))
+    """Returns a few ulps of the larger magnitude of the arguments, or zero if infinite.
+
+    Near zero, the tolerance stays at a few times the smallest normal number. XLA may
+    flush smaller numbers to zero, and a tolerance of zero would not stop ties flipping.
+    """
+    limits = jnp.finfo(jnp.result_type(first, second))
+    magnitude = jnp.maximum(jnp.abs(first), jnp.abs(second))
+    tolerance = TIE_TOLERANCE * jnp.maximum(
+        limits.eps * magnitude, limits.smallest_normal
+    )
     return jnp.where(jnp.isfinite(tolerance), tolerance, 0.0)
 
 

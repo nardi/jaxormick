@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from functions import jitted_inner, quadratic_form
+from functions import TEST_FUNCTIONS, jitted_inner, quadratic_form
 from jax.extend.core import Primitive
 
 import jaxormick as jmk
@@ -173,3 +173,19 @@ def test_reverse_mode_gradients_follow_one_piece_at_tie():
     pieces = np.array([[1.0, lower[0] * slope], [slope, upper[0] * slope]])
     distances = np.abs(pieces - np.asarray(planes.convex_gradient)).max(axis=1)
     assert distances.min() <= 1e-5
+
+
+def test_reverse_mode_plane_at_tie_near_zero_is_valid():
+    """Checks a plane where the pieces of a product tie at values near zero.
+
+    The lower end of `x[0]` is the smallest normal number. Products with it are
+    subnormal, which XLA may flush to zero, so a tolerance relative to them vanishes.
+    The concave plane must still lie above the function at the far corner.
+    """
+    function = TEST_FUNCTIONS["linear_map"]
+    tiny = jnp.finfo(jnp.float32).smallest_normal
+    lower, upper = jnp.array([-tiny, -1.0]), jnp.array([0.5, 1.0])
+    corner = jnp.array([0.5, -1.0])
+    planes = jmk.affine_relaxation(function, mode="reverse")(lower, lower, upper)
+    above = planes.concave + (corner - lower) @ planes.concave_gradient
+    assert above >= function(corner) - 1e-5
