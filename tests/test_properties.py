@@ -13,7 +13,7 @@ from conftest import (
     slack,
 )
 from functions import TEST_FUNCTIONS
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 import jaxormick as jmk
@@ -113,6 +113,8 @@ def assert_planes_bound(
 def test_affine_planes_bound_function(name, sample):
     """Checks that tangent planes at an interior point have finite slopes and bound `f`."""
     lower, upper, points = sample
+    # References on the boundary have their own test, where slopes may be infinite.
+    assume(np.all((lower < points[0]) & (points[0] < upper)))
     planes = affine(name)(points[0], lower, upper)
     values = np.asarray(batched_function(name)(points))
     assert np.all(np.isfinite(planes.convex_gradient))
