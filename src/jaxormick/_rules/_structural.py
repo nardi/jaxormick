@@ -34,6 +34,8 @@ STRUCTURAL_PRIMITIVES = (
     "convert_element_type",
     "reduce_sum",
     "cumsum",
+    "dynamic_update_slice",
+    "scatter-add",
 )
 """Primitives that rearrange elements or sum them with nonnegative weights."""
 
@@ -80,6 +82,38 @@ def split_rule(
         Relaxation(**dict(zip(FIELD_NAMES, fields, strict=True)))
         for fields in zip(*pieces, strict=True)
     ]
+
+
+@relaxes("scatter")
+def scatter_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `scatter`, which `x.at[i].set(y)` produces.
+
+    With repeated indices, `scatter` keeps one of the updates and does not say which.
+    Scattering each field on its own could then mix fields of different updates. The
+    rule stacks the fields along a new last axis instead and scatters them together.
+    That axis is a window dimension, so each update moves as a whole.
+    """
+    operand, indices, updates = operands
+    stacked_operand, stacked_updates = (
+        jnp.stack([getattr(as_relaxation(value), name) for name in FIELD_NAMES], -1)
+        for value in (operand, updates)
+    )
+    numbers = params["dimension_numbers"]
+    window_dims = (*numbers.update_window_dims, stacked_updates.ndim - 1)
+    stacked = primitive.bind(
+        stacked_operand,
+        indices,
+        stacked_updates,
+        **{
+            **params,
+            "dimension_numbers": numbers._replace(update_window_dims=window_dims),
+        },
+    )
+    return Relaxation(
+        **{name: stacked[..., index] for index, name in enumerate(FIELD_NAMES)}
+    )
 
 
 @relaxes("select_n")

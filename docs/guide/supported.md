@@ -47,6 +47,12 @@ This covers `reshape`, `broadcast_in_dim`, `transpose`, `squeeze`, `expand_dims`
 `slice`, `split`, `unstack`, `dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`,
 `rev`, `copy` and `convert_element_type`. Indices must not depend on the variables.
 
+Updates through `x.at[i].set(y)`, `x.at[i].add(y)` and `lax.dynamic_update_slice` are
+exact too. They produce `scatter`, `scatter-add` and `dynamic_update_slice`. With
+repeated indices, `scatter` keeps one of the updates for each position, and the four
+fields always come from the same update. `x.at[i].multiply`, `x.at[i].min` and
+`x.at[i].max` are not supported.
+
 `jnp.where` and `lax.select_n` are supported when the condition does not depend on the
 variables.
 

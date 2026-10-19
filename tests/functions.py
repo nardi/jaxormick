@@ -121,5 +121,17 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
         + jnp.max(x[None, :1], axis=(0, 1))
     ),
     "reduce_prod": lambda x: jnp.prod(jnp.stack([x[0], x[1] + 3, x[0] - x[1], x[1]])),
+    "scatter_set": lambda x: (
+        jnp.zeros(4)
+        .at[jnp.array([0, 0, 2])]
+        .set(jnp.stack([x[0] ** 2, x[1], x[0] * x[1]]))
+        @ jnp.arange(1.0, 5.0)
+    ),
+    "scatter_add": lambda x: (
+        jnp.ones(3).at[jnp.array([1, 1])].add(x**2) @ x[jnp.array([0, 1, 1])]
+    ),
+    "dynamic_update_slice": lambda x: jnp.exp(
+        lax.dynamic_update_slice(jnp.zeros(3), x * x[::-1], (1,))
+    ).sum(),
 }
 """Functions that together exercise every rule."""
