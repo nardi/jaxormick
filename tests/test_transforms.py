@@ -189,3 +189,18 @@ def test_reverse_mode_plane_at_tie_near_zero_is_valid():
     planes = jmk.affine_relaxation(function, mode="reverse")(lower, lower, upper)
     above = planes.concave + (corner - lower) @ planes.concave_gradient
     assert above >= function(corner) - 1e-5
+
+
+def test_reverse_mode_plane_at_cancelling_tie_is_valid():
+    """Checks a plane where the pieces of a product tie after their terms cancel.
+
+    At this corner both concave pieces of `x[0] * x[1]` are near zero, but their terms
+    are near 1.6. Rounding then differs between fused kernels by more than a few ulps
+    of zero. The concave plane must still lie above the function at the far corner.
+    """
+    function = lambda x: jnp.exp(x * x[::-1]).sum()  # noqa: E731
+    lower = jnp.array([-1.8984375, -1.0])
+    upper = jnp.array([0.0, 0.82854486])
+    planes = jmk.affine_relaxation(function, mode="reverse")(upper, lower, upper)
+    above = planes.concave + (lower - upper) @ planes.concave_gradient
+    assert above >= function(lower) - 1e-4

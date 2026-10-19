@@ -75,7 +75,9 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
     # Each term is the smaller or larger of a constant times the convex and the concave
     # side of a factor. Since `convex ≤ concave`, the sign of the constant decides which
     # side that is. Choosing by sign keeps `jax.grad` on one side when both tie, for the
-    # reason given in `mid`.
+    # reason given in `mid`. The terms can cancel to a value near zero, so the tie
+    # tolerance scales with the corner products, which bound every term.
+    scale = jnp.max(jnp.abs(corner_products), axis=0)
     convex = larger(
         smaller_scaled(right.lower, left)
         + smaller_scaled(left.lower, right)
@@ -83,6 +85,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
         smaller_scaled(right.upper, left)
         + smaller_scaled(left.upper, right)
         - left.upper * right.upper,
+        scale=scale,
     )
     concave = smaller(
         larger_scaled(right.lower, left)
@@ -91,6 +94,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
         larger_scaled(right.upper, left)
         + larger_scaled(left.lower, right)
         - left.lower * right.upper,
+        scale=scale,
     )
     return Relaxation(
         lower=jnp.min(corner_products, axis=0),

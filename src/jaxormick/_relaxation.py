@@ -74,21 +74,26 @@ TIE_TOLERANCE = 16
 """Ulps of the arguments within which `larger` and `smaller` keep the first one."""
 
 
-def tie_tolerance(first: Array, second: Array) -> Array:
+def tie_tolerance(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
     """Returns a few ulps of the larger magnitude of the arguments, or zero if infinite.
 
-    Near zero, the tolerance stays at a few times the smallest normal number. XLA may
-    flush smaller numbers to zero, and a tolerance of zero would not stop ties flipping.
+    An argument that is a sum of larger terms can be near zero while its rounding error
+    is a few ulps of those terms. Callers then pass the size of the terms as `scale`,
+    and the tolerance covers it too. Near zero, the tolerance stays at a few times the
+    smallest normal number. XLA may flush smaller numbers to zero, and a tolerance of
+    zero would not stop ties flipping.
     """
     limits = jnp.finfo(jnp.result_type(first, second))
-    magnitude = jnp.maximum(jnp.abs(first), jnp.abs(second))
+    magnitude = jnp.maximum(
+        jnp.maximum(jnp.abs(first), jnp.abs(second)), jnp.abs(scale)
+    )
     tolerance = TIE_TOLERANCE * jnp.maximum(
         limits.eps * magnitude, limits.smallest_normal
     )
     return jnp.where(jnp.isfinite(tolerance), tolerance, 0.0)
 
 
-def larger(first: Array, second: Array) -> Array:
+def larger(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
     """Returns the elementwise maximum, differentiated along the argument it picks.
 
     Where the arguments tie, `jnp.maximum` splits the gradient between them. A plain
@@ -97,17 +102,20 @@ def larger(first: Array, second: Array) -> Array:
     pick different arguments, and their sum is no subgradient. This function keeps the
     first argument unless the second is larger by more than a few ulps. Near a tie,
     rounding then cannot flip the choice. The result may fall short of the maximum by
-    these few ulps, which is still valid, since each argument is.
+    these few ulps, which is still valid, since each argument is. `scale` is passed to
+    `tie_tolerance`.
     """
-    return jnp.where(first >= second - tie_tolerance(first, second), first, second)
+    tolerance = tie_tolerance(first, second, scale)
+    return jnp.where(first >= second - tolerance, first, second)
 
 
-def smaller(first: Array, second: Array) -> Array:
+def smaller(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
     """Returns the elementwise minimum, differentiated along the argument it picks.
 
     This mirrors `larger`.
     """
-    return jnp.where(first <= second + tie_tolerance(first, second), first, second)
+    tolerance = tie_tolerance(first, second, scale)
+    return jnp.where(first <= second + tolerance, first, second)
 
 
 def intersect_relaxations(*relaxations: PyTree[Relaxation]) -> PyTree[Relaxation]:
