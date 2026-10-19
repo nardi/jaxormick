@@ -145,6 +145,45 @@ def test_envelope_with_inflection_outside_interval():
     np.testing.assert_allclose(right, chord)
 
 
+@settings(max_examples=40, deadline=None)
+@given(lower=st.floats(-4.0, 0.5), width=st.floats(1e-12, 8.0))
+def test_cbrt_relaxation_is_valid_around_zero(lower, width):
+    """Checks bounds and curvature of the `cbrt` relaxation on a grid.
+
+    A grid envelope cannot follow the infinite slope of `cbrt` at zero, so this test
+    checks the defining properties of the relaxation instead of comparing with one.
+    """
+    upper = lower + width
+    points = np.linspace(lower, upper, 101)
+    relaxation = jax.vmap(jmk.relax(jnp.cbrt), in_axes=(0, None, None))(
+        points, lower, upper
+    )
+    values = np.cbrt(points)
+    allowed = 1e-12
+    assert np.all(relaxation.lower <= relaxation.convex + allowed)
+    assert np.all(relaxation.convex <= values + allowed)
+    assert np.all(values <= relaxation.concave + allowed)
+    assert np.all(relaxation.concave <= relaxation.upper + allowed)
+    convex, concave = np.asarray(relaxation.convex), np.asarray(relaxation.concave)
+    assert np.all(convex[:-2] - 2 * convex[1:-1] + convex[2:] >= -allowed)
+    assert np.all(concave[:-2] - 2 * concave[1:-1] + concave[2:] <= allowed)
+
+
+def test_envelope_with_unresolved_tangent_point_is_finite():
+    """Checks `cbrt` when the tangent point is closer to zero than bisection resolves.
+
+    The bracket then ends at zero, where `cbrt` has an infinite slope.
+    """
+    lower, upper = jnp.asarray(-1.0), jnp.asarray(1e-300)
+    points = jnp.array([-1.0, -0.5, 0.0, 1e-300])
+    envelope = _composition.convex_envelope_of_convex_concave(
+        jnp.cbrt, 0.0, lower, upper, points
+    )
+    assert np.all(np.isfinite(envelope))
+    assert np.all(envelope <= jnp.cbrt(points))
+    assert envelope[1] <= (envelope[0] + envelope[2]) / 2
+
+
 def test_cos_over_several_periods():
     """Checks the bounds of `cos` and its envelopes between and beyond its minima."""
     points = np.array([-7.0, -2.0, 0.0, 5.0, 12.0])

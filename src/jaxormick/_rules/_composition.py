@@ -290,7 +290,14 @@ def envelope_and_slope(
     follows_function = jnp.where(
         left_of_bracket, value_at_point, value_at_left + slope_at_left * (point - left)
     )
-    steeper_line = value_at_upper + slope_at_right * (point - upper)
+    # The bracket may not resolve a tangent point that lies very close to a point of
+    # infinite slope, like zero for `cbrt`. The steeper line is then vertical, and the
+    # tangent at `left` alone still bounds the curve from below.
+    is_finite = jnp.isfinite(slope_at_right)
+    finite_slope = jnp.where(is_finite, slope_at_right, 0.0)
+    steeper_line = jnp.where(
+        is_finite, value_at_upper + finite_slope * (point - upper), -jnp.inf
+    )
     follows_is_larger = follows_function >= steeper_line
     curve = jnp.where(follows_is_larger, follows_function, steeper_line)
     curve_slope = jnp.where(

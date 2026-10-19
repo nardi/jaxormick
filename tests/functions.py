@@ -109,7 +109,7 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
     "atanh": lambda x: jnp.arctanh((x[0] + x[1]) / 4.5),
     "tan": lambda x: jnp.tan(0.35 * x[0] + 0.3 * x[1]),
     "shifted_tan": lambda x: jnp.tan(0.2 * x[0] + 3.0),
-    "cbrt": lambda x: jnp.cbrt(x[0] - 0.5 * x[1]),
+    "cbrt": lambda x: jnp.cbrt(x[0] + 2) * x[1],
     "exp2_log2": lambda x: jnp.exp2(x[0]) + jnp.log2(x[1] + 3),
     "erf_erfc": lambda x: (
         jax.scipy.special.erf(2 * x[0]) - jax.scipy.special.erfc(x[1])
