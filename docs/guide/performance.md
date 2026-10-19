@@ -58,6 +58,23 @@ variables below.
 `intersect_relaxations` costs one relaxation for each form it combines, plus an
 elementwise maximum and minimum.
 
+`alpha_bb=True` adds an interval evaluation of the Hessian. The table compares `relax`
+with and without it on batches of 1024 different boxes of the benchmark functions, with
+each coordinate of the box 0.1 or 1 wide. The last two columns give the mean gap between
+the concave and convex sides with αBB, relative to the gap without it.
+
+| Function | Run time | Compile time | Gap, width 1 | Gap, width 0.1 |
+| --- | --- | --- | --- | --- |
+| Six-hump camel | 1.5–2.1× | 5.8× | 1.00 | 0.63 |
+| Sum of 50 exponentials | 30–34× | 4× | 1.00 | 1.00 |
+| Newton iteration, 20 steps | 2.4–3.2× | 6–8× | 1.00 | 0.55 |
+| Quadratic form | 5.5–6.1× | 4–4.5× | 0.94 | 0.94 |
+| `sin`, `cos` and `tanh` | 1.1× | 2.3× | 1.00 | 0.97 |
+
+αBB helps most on small boxes, where its quadratic term is small. Branch and bound
+reaches such boxes after a few splits. The sum of 50 exponentials shows the cost of a
+Hessian with 2500 entries, for no gain on these boxes.
+
 ## Measured costs
 
 The benchmarks in `benchmarks/` time each transformation on five functions and divide by

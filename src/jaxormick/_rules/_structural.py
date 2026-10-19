@@ -63,6 +63,24 @@ for name in STRUCTURAL_PRIMITIVES:
     register_rule(name, structural_rule)
 
 
+@relaxes("split")
+def split_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> list[Relaxation]:
+    """Relaxes `split` exactly by splitting each field into the same pieces.
+
+    `jax.hessian` produces this primitive.
+    """
+    pieces = [
+        primitive.bind(getattr(as_relaxation(operands[0]), name), **params)
+        for name in FIELD_NAMES
+    ]
+    return [
+        Relaxation(**dict(zip(FIELD_NAMES, fields, strict=True)))
+        for fields in zip(*pieces, strict=True)
+    ]
+
+
 @relaxes("select_n")
 def select_n_rule(
     primitive: Primitive, operands: Sequence[Operand], params: Params

@@ -179,6 +179,22 @@ def square_rule(
     return integer_power(as_relaxation(operands[0]), 2)
 
 
+@relaxes("one_minus_square")
+def one_minus_square_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `one_minus_square`, which is `1 − x²`, concave and largest at zero.
+
+    JAX 0.11 uses it in the derivative of `tanh`.
+    """
+    operand = as_relaxation(operands[0])
+    return compose_concave(
+        operand,
+        lambda point: 1 - lax.integer_pow(point, 2),
+        jnp.clip(0, operand.lower, operand.upper),
+    )
+
+
 @relaxes("sqrt")
 def sqrt_rule(
     primitive: Primitive, operands: Sequence[Operand], params: Params

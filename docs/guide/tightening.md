@@ -40,3 +40,48 @@ the result follow the input that attains the maximum or the minimum, so
 Each form costs a relaxation of its own. Relaxing two forms costs about twice as much as
 relaxing one, and both run in the same compiled program when the call is inside
 `jax.jit`.
+
+## αBB relaxations
+
+`relax(f, alpha_bb=True)` intersects the McCormick relaxation with the αBB relaxation of
+[Adjiman et al. (1998)](https://doi.org/10.1016/S0098-1354(98)00027-1). αBB adds a
+quadratic to `f` that is just large enough to make it convex, based on bounds of the
+Hessian of `f` over the box. It is often tighter for smooth functions whose factors
+relax poorly one at a time. The indefinite quadratic form below is one.
+
+<!-- name: test_alpha_bb -->
+```python
+import jax.numpy as jnp
+
+import jaxormick as jmk
+
+matrix = jnp.array([[2.0, -1.0], [0.5, 1.0]])
+
+
+def quadratic_form(x):
+    return x @ (matrix @ x)
+
+
+reference = jnp.array([0.1, -0.2])
+lower = -jnp.ones(2)
+upper = jnp.ones(2)
+
+mccormick = jmk.relax(quadratic_form)(reference, lower, upper)
+both = jmk.relax(quadratic_form, alpha_bb=True)(reference, lower, upper)
+
+assert both.convex > mccormick.convex
+assert both.concave < mccormick.concave
+```
+
+If the bounds of the Hessian show that `f` is convex on the box, the convex side is `f`
+itself. The same holds for the concave side of a concave function.
+
+`convex_side`, `concave_side` and `affine_relaxation` take the same keyword. αBB needs a
+function that returns one array, and a rule for every primitive in its Hessian.
+Functions built with `jnp.abs`, `jnp.maximum` or `jnp.clip` have comparisons in their
+Hessians, and `alpha_bb=True` raises `UnsupportedPrimitiveError` for them. The interval
+bounds are the McCormick bounds, since αBB only changes the convex and concave sides.
+
+The Hessian of a function of \(n\) variables has \(n^2\) entries, and each costs an
+interval evaluation of a second derivative. See
+[performance](performance.md#cost-of-each-transformation) for measurements.

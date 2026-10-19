@@ -1,5 +1,9 @@
 # References
 
+- Adjiman, C. S., Dallwig, S., Floudas, C. A. and Neumaier, A. (1998). A global
+  optimization method, αBB, for general twice-differentiable constrained NLPs. I.
+  Theoretical advances. *Computers & Chemical Engineering*, 22(9), 1137–1158.
+  [doi:10.1016/S0098-1354(98)00027-1](https://doi.org/10.1016/S0098-1354(98)00027-1)
 - Bompadre, A. and Mitsos, A. (2012). Convergence rate of McCormick relaxations.
   *Journal of Global Optimization*, 52(1), 1–28.
   [doi:10.1007/s10898-011-9685-2](https://doi.org/10.1007/s10898-011-9685-2)

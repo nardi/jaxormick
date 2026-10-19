@@ -17,6 +17,7 @@
 | `integer_pow`, `square` | `x ** 2`, `x ** 3`, `jnp.square` | Envelopes. Even powers are convex, odd powers use the envelope of [Liberti and Pantelides (2003)](https://doi.org/10.1023/A:1021924706467) when the interval contains zero. Negative powers have infinite bounds when the interval contains zero. A power of a power, such as `(x ** 2) ** 2`, becomes one power |
 | `pow` | `x ** 1.5` | Constant exponents only, on positive intervals for non-integer exponents |
 | `sqrt`, `rsqrt` | `jnp.sqrt`, `lax.rsqrt` | Envelopes on nonnegative and positive intervals |
+| `one_minus_square` | \(1 - x^2\) in the derivative of `jnp.tanh` in JAX 0.11 | Envelopes |
 
 ## Elementary functions
 
@@ -34,11 +35,11 @@ JAX builds them from the operations above.
 
 ## Array operations
 
-Reshaping, broadcasting, transposing, slicing, indexing, concatenation, padding,
-reversal and dtype conversion act on the four fields separately and are exact. This
-covers `reshape`, `broadcast_in_dim`, `transpose`, `squeeze`, `expand_dims`, `slice`,
-`dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`, `rev`, `copy` and
-`convert_element_type`. Indices must not depend on the variables.
+Reshaping, broadcasting, transposing, slicing, splitting, indexing, concatenation,
+padding, reversal and dtype conversion act on the four fields separately and are exact.
+This covers `reshape`, `broadcast_in_dim`, `transpose`, `squeeze`, `expand_dims`,
+`slice`, `split`, `dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`, `rev`,
+`copy` and `convert_element_type`. Indices must not depend on the variables.
 
 `jnp.where` and `lax.select_n` are supported when the condition does not depend on the
 variables.
@@ -69,6 +70,9 @@ flow](control_flow.md).
   condition that depends on the variables raise, since the result would jump.
 - **Reductions to a maximum.** `jnp.max`, `jnp.min` and `jnp.argmax` over an axis are
   not supported yet. A loop of `jnp.maximum` over the elements works.
+- **αBB of nonsmooth functions.** `alpha_bb=True` needs a rule for every primitive in
+  the Hessian. Hessians of `jnp.abs`, `jnp.maximum`, `jnp.clip` and `jax.nn.softplus`
+  contain comparisons and raise `UnsupportedPrimitiveError`.
 - **Other functions.** `jnp.arctan`, `jnp.sinh`, `jnp.cosh`, `jax.scipy.special.erf` and
   other functions without a rule raise `UnsupportedPrimitiveError`. [Custom
   rules](extending.md) shows how to add one.

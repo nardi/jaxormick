@@ -15,8 +15,10 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, PyTree
 
+from ._alpha_bb import alpha_bb_sides
+from ._errors import UnsupportedPrimitiveError
 from ._interpreter import eval_jaxpr
-from ._relaxation import Relaxation
+from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import as_relaxation
 
 Mode = Literal["forward", "reverse"]
@@ -47,7 +49,9 @@ def as_float_array(value: ArrayLike) -> Array:
     return array.astype(jnp.promote_types(array.dtype, jnp.result_type(float)))
 
 
-def relax(function: Callable[..., PyTree[Array]]) -> Callable[..., PyTree[Relaxation]]:
+def relax(
+    function: Callable[..., PyTree[Array]], *, alpha_bb: bool = False
+) -> Callable[..., PyTree[Relaxation]]:
     """Returns a function that computes McCormick relaxations of `function` over a box.
 
     `function` takes an array of variables, then any constant arguments. The returned
@@ -58,7 +62,14 @@ def relax(function: Callable[..., PyTree[Array]]) -> Callable[..., PyTree[Relaxa
 
     The returned function is compiled with `jax.jit` and composes with `jax.vmap`,
     `jax.grad` and further `jax.jit`.
+
+    With `alpha_bb=True`, the result is intersected with the αBB relaxation of
+    Adjiman et al. (1998), which bounds the Hessian of `function` over the box with
+    `interval`. The result is often tighter for smooth functions on small boxes. It
+    needs a function that returns a single array, and every primitive in its Hessian
+    needs a rule.
     """
+    hessian_bounds = interval(jax.hessian(function)) if alpha_bb else None
 
     @functools.wraps(function)
     @jax.jit
@@ -73,11 +84,56 @@ def relax(function: Callable[..., PyTree[Array]]) -> Callable[..., PyTree[Relaxa
         )
         variables = Relaxation.variable(reference, lower, upper)
         outputs = eval_jaxpr(closed, [variables, *jax.tree.leaves(arguments)])
-        return jax.tree.unflatten(
-            jax.tree.structure(output_shape), [as_relaxation(o) for o in outputs]
-        )
+        relaxations = [as_relaxation(output) for output in outputs]
+        structure = jax.tree.structure(output_shape)
+        if hessian_bounds is not None:
+            if not jax.tree_util.treedef_is_leaf(structure):
+                raise ValueError("`alpha_bb` needs a function that returns one array.")
+            relaxations = [
+                with_alpha_bb(
+                    function, hessian_bounds, relaxations[0], variables, *arguments
+                )
+            ]
+        return jax.tree.unflatten(structure, relaxations)
 
     return relaxed
+
+
+def with_alpha_bb(
+    function: Callable[..., Array],
+    hessian_bounds: Callable[..., tuple[Array, Array]],
+    relaxation: Relaxation,
+    variables: Relaxation,
+    *arguments: Any,
+) -> Relaxation:
+    """Returns the intersection of a relaxation with the αBB relaxation of `function`.
+
+    `variables` is the relaxation of the variables, which holds the reference point and
+    the box.
+    """
+    try:
+        hessian_lower, hessian_upper = hessian_bounds(
+            variables.lower, variables.upper, *arguments
+        )
+    except UnsupportedPrimitiveError as error:
+        raise UnsupportedPrimitiveError(
+            f"`alpha_bb` could not bound the Hessian of the function. {error}"
+        ) from error
+    convex, concave = alpha_bb_sides(
+        jnp.asarray(function(variables.convex, *arguments), relaxation.dtype),
+        variables.convex,
+        variables.lower,
+        variables.upper,
+        hessian_lower,
+        hessian_upper,
+    )
+    alpha_bb = Relaxation(
+        lower=relaxation.lower,
+        upper=relaxation.upper,
+        convex=convex,
+        concave=concave,
+    )
+    return intersect_relaxations(relaxation, alpha_bb)
 
 
 def interval(
@@ -132,10 +188,13 @@ def jacobian_with_value(
 
 
 def one_side(
-    function: Callable[..., Array], side: Literal["convex", "concave"], mode: Mode
+    function: Callable[..., Array],
+    side: Literal["convex", "concave"],
+    mode: Mode,
+    alpha_bb: bool,
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes one side of the relaxation and its gradient."""
-    relaxed = relax(function)
+    relaxed = relax(function, alpha_bb=alpha_bb)
 
     def value(reference: Array, lower: Array, upper: Array, *arguments: Any) -> Array:
         return getattr(relaxed(reference, lower, upper, *arguments), side)
@@ -156,30 +215,31 @@ def one_side(
 
 
 def convex_side(
-    function: Callable[..., Array], mode: Mode = "forward"
+    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes the convex relaxation and a subgradient.
 
     The returned function takes the same arguments as the one from `relax` and returns
     the value of the convex relaxation of `function` at the reference point and its
     gradient there. `function` has to return a single array. Computing one side alone
-    lets XLA remove the computations that only the other side needs.
+    lets XLA remove the computations that only the other side needs. `alpha_bb` is
+    passed to `relax`.
     """
-    return one_side(function, "convex", mode)
+    return one_side(function, "convex", mode, alpha_bb)
 
 
 def concave_side(
-    function: Callable[..., Array], mode: Mode = "forward"
+    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes the concave relaxation and a supergradient.
 
     This mirrors `convex_side`.
     """
-    return one_side(function, "concave", mode)
+    return one_side(function, "concave", mode, alpha_bb)
 
 
 def affine_relaxation(
-    function: Callable[..., Array], mode: Mode = "forward"
+    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
 ) -> Callable[..., AffineRelaxation]:
     """Returns a function that computes affine under- and overestimators of `function`.
 
@@ -187,9 +247,10 @@ def affine_relaxation(
     an `AffineRelaxation`. Its planes touch the convex and concave relaxations at the
     reference point and bound `function` on the whole box, since a tangent plane of a
     convex function stays below it. `function` has to return a single array. Both sides
-    are differentiated in one pass, in forward mode by default.
+    are differentiated in one pass, in forward mode by default. `alpha_bb` is passed to
+    `relax`.
     """
-    relaxed = relax(function)
+    relaxed = relax(function, alpha_bb=alpha_bb)
 
     def sides(
         reference: Array, lower: Array, upper: Array, *arguments: Any

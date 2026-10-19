@@ -67,6 +67,12 @@ Every JAX transformation applies to it.
 - `jax.grad`, `jax.jacfwd` and `jax.jacrev` differentiate the relaxations, and the
   derivatives are the subgradients for affine relaxations.
 
+The function to relax can itself come from a JAX transformation. `jax.hessian(f)` is a
+JAX function, so `interval` bounds the Hessian of `f` over a box. The αBB relaxation of
+`relax(f, alpha_bb=True)` uses these bounds. Hessians often contain `split`, which has a
+rule for that reason. In JAX 0.11, the derivative of `tanh` contains `one_minus_square`,
+which has a rule too.
+
 The function to relax can be the same JAX code that a model or a simulation already
 runs, without a separate implementation for the solver.
 

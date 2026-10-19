@@ -108,6 +108,44 @@ contains it too. Combining relaxations this way therefore gives a relaxation tha
 least as tight as each of them. A subgradient of the function that attains the maximum
 at the reference point is a subgradient of the maximum.
 
+## αBB relaxations
+
+McCormick relaxations follow the factorable form, one factor at a time. A smooth
+function with many factors can end up with loose sides, even when the function itself is
+close to convex. [Adjiman et al. (1998)](https://doi.org/10.1016/S0098-1354(98)00027-1)
+relax a twice differentiable function as a whole instead. Their convex underestimator
+adds a quadratic to \(f\).
+
+\[
+f^{cv}(x) = f(x) + \sum_i \alpha_i (x_i - x_i^L)(x_i - x_i^U)
+\]
+
+Each term of the sum is nonpositive on the box, so \(f^{cv} \le f\). The term adds
+\(2 \alpha_i\) to the diagonal of the Hessian. \(f^{cv}\) is convex when the shifted
+Hessian is positive semidefinite at every point of the box.
+
+`jaxormick` bounds the Hessian over the box by applying `interval` to `jax.hessian(f)`.
+The result is an interval matrix \([H^L, H^U]\) that contains the Hessian at every point
+of the box. The scaled Gershgorin theorem gives shifts that make every matrix in it
+positive semidefinite. With the widths \(d_i = x_i^U - x_i^L\), the shift of variable
+\(i\) is
+
+\[
+\alpha_i = \max\Bigl(0,\ -\frac{1}{2}\Bigl(H_{ii}^L - \sum_{j \ne i}
+\max\bigl(\lvert H_{ij}^L \rvert, \lvert H_{ij}^U \rvert\bigr)
+\frac{d_j}{d_i}\Bigr)\Bigr).
+\]
+
+The concave overestimator applies the same construction to \(-f\). If every shift is
+zero, the interval Hessian proves \(f\) convex on the box, and the convex side is \(f\)
+itself.
+
+`jaxormick` intersects the αBB relaxation with the McCormick relaxation, so the result
+is at least as tight as either. Neither is tighter in general. The quadratic term
+shrinks with the box. αBB helps most for smooth functions whose factors relax poorly one
+at a time, such as indefinite quadratic forms. Where the Hessian bounds are infinite,
+the αBB sides are infinite too, and the McCormick sides remain.
+
 ## A worked example
 
 Take \(f(x) = x_1 e^{x_2} - x_2^2\) on \(X = [0, 1] \times [-1, 1]\) at the reference
