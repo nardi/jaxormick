@@ -18,8 +18,9 @@ The transformations are:
 - [`convex_side`][jaxormick.convex_side] and [`concave_side`][jaxormick.concave_side],
   which return one relaxation and its gradient.
 
-`intersect_relaxations` combines relaxations of several forms of a function, and
-`alpha_bb=True` intersects the McCormick relaxation with an αBB relaxation. See [tighter
+`intersect_relaxations` combines relaxations of several forms of a function.
+`alpha_bb=True` intersects the McCormick relaxation with an αBB relaxation, and
+`tighten_bounds=True` narrows intermediate intervals with subgradients. See [tighter
 relaxations](guide/tightening.md).
 
 ## Installation

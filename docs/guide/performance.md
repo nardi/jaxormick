@@ -75,6 +75,24 @@ the concave and convex sides with αBB, relative to the gap without it.
 reaches such boxes after a few splits. The sum of 50 exponentials shows the cost of a
 Hessian with 2500 entries, for no gain on these boxes.
 
+`tighten_bounds=True` relaxes every value a second time at the middle of the box and
+pushes one subgradient per variable through each rule. The table compares `relax` with
+and without it on the same batches. The last two columns give the mean width of the
+interval of the output with tightened bounds, relative to the width without them.
+
+| Function | Run time | Compile time | Width, width 1 | Width, width 0.1 |
+| --- | --- | --- | --- | --- |
+| Six-hump camel | 4.5–5.4× | 4.8× | 0.97 | 0.81 |
+| Sum of 50 exponentials | 54–55× | 2.2× | 1.00 | 0.79 |
+| Newton iteration, 20 steps | 2.6–3.0× | 3.4–3.8× | 0.97 | 0.37 |
+| Quadratic form | 30–38× | 2.5× | 1.00 | 0.36 |
+| `sin`, `cos` and `tanh` | 1.3–1.4× | 3.1–3.6× | 0.99 | 0.91 |
+
+The run time grows with the number of variables, as for forward-mode differentiation.
+The quadratic form has 100 variables and the sum of exponentials 50. The bounds narrow
+most on small boxes, where the affine relaxations are close to the function. On these
+benchmarks the gap between the convex and concave sides changes by at most 1%.
+
 ## Measured costs
 
 The benchmarks in `benchmarks/` time each transformation on five functions and divide by

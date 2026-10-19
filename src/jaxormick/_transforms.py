@@ -17,9 +17,10 @@ from jaxtyping import Array, ArrayLike, PyTree
 
 from ._alpha_bb import alpha_bb_sides
 from ._errors import UnsupportedPrimitiveError
-from ._interpreter import eval_jaxpr
+from ._interpreter import eval_jaxpr, eval_tracked_jaxpr
 from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import as_relaxation
+from ._tightening import Tracked, tracked_variables
 
 Mode = Literal["forward", "reverse"]
 """The mode of automatic differentiation used for subgradients."""
@@ -50,7 +51,10 @@ def as_float_array(value: ArrayLike) -> Array:
 
 
 def relax(
-    function: Callable[..., PyTree[Array]], *, alpha_bb: bool = False
+    function: Callable[..., PyTree[Array]],
+    *,
+    alpha_bb: bool = False,
+    tighten_bounds: bool = False,
 ) -> Callable[..., PyTree[Relaxation]]:
     """Returns a function that computes McCormick relaxations of `function` over a box.
 
@@ -68,6 +72,11 @@ def relax(
     `interval`. The result is often tighter for smooth functions on small boxes. It
     needs a function that returns a single array, and every primitive in its Hessian
     needs a rule.
+
+    With `tighten_bounds=True`, the interval of every intermediate value is narrowed by
+    the affine relaxations at the middle of the box, after Najman and Mitsos (2019).
+    Narrower intermediate intervals also tighten the relaxations that depend on them.
+    This costs about as much as one forward-mode derivative of the relaxation.
     """
     hessian_bounds = interval(jax.hessian(function)) if alpha_bb else None
 
@@ -83,7 +92,15 @@ def relax(
             reference, *arguments
         )
         variables = Relaxation.variable(reference, lower, upper)
-        outputs = eval_jaxpr(closed, [variables, *jax.tree.leaves(arguments)])
+        constants = jax.tree.leaves(arguments)
+        if tighten_bounds:
+            tracked, box = tracked_variables(reference, lower, upper)
+            outputs = [
+                output.at_reference if isinstance(output, Tracked) else output
+                for output in eval_tracked_jaxpr(closed, [tracked, *constants], box)
+            ]
+        else:
+            outputs = eval_jaxpr(closed, [variables, *constants])
         relaxations = [as_relaxation(output) for output in outputs]
         structure = jax.tree.structure(output_shape)
         if hessian_bounds is not None:
@@ -137,15 +154,16 @@ def with_alpha_bb(
 
 
 def interval(
-    function: Callable[..., PyTree[Array]],
+    function: Callable[..., PyTree[Array]], *, tighten_bounds: bool = False
 ) -> Callable[..., tuple[PyTree[Array], PyTree[Array]]]:
     """Returns a function that computes interval bounds of `function` over a box.
 
     The returned function takes the lower and upper bounds of the box, then the
     constant arguments of `function`, and returns the lower and upper bounds of its
-    output. The convex and concave sides are not needed, so XLA removes them.
+    output. The convex and concave sides are not needed, so XLA removes them, unless
+    `tighten_bounds`, which is passed to `relax`, needs them.
     """
-    relaxed = relax(function)
+    relaxed = relax(function, tighten_bounds=tighten_bounds)
 
     @functools.wraps(function)
     @jax.jit
@@ -192,9 +210,10 @@ def one_side(
     side: Literal["convex", "concave"],
     mode: Mode,
     alpha_bb: bool,
+    tighten_bounds: bool,
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes one side of the relaxation and its gradient."""
-    relaxed = relax(function, alpha_bb=alpha_bb)
+    relaxed = relax(function, alpha_bb=alpha_bb, tighten_bounds=tighten_bounds)
 
     def value(reference: Array, lower: Array, upper: Array, *arguments: Any) -> Array:
         return getattr(relaxed(reference, lower, upper, *arguments), side)
@@ -215,31 +234,43 @@ def one_side(
 
 
 def convex_side(
-    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
+    function: Callable[..., Array],
+    mode: Mode = "forward",
+    *,
+    alpha_bb: bool = False,
+    tighten_bounds: bool = False,
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes the convex relaxation and a subgradient.
 
     The returned function takes the same arguments as the one from `relax` and returns
     the value of the convex relaxation of `function` at the reference point and its
     gradient there. `function` has to return a single array. Computing one side alone
-    lets XLA remove the computations that only the other side needs. `alpha_bb` is
-    passed to `relax`.
+    lets XLA remove the computations that only the other side needs. `alpha_bb` and
+    `tighten_bounds` are passed to `relax`.
     """
-    return one_side(function, "convex", mode, alpha_bb)
+    return one_side(function, "convex", mode, alpha_bb, tighten_bounds)
 
 
 def concave_side(
-    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
+    function: Callable[..., Array],
+    mode: Mode = "forward",
+    *,
+    alpha_bb: bool = False,
+    tighten_bounds: bool = False,
 ) -> Callable[..., tuple[Array, Array]]:
     """Returns a function that computes the concave relaxation and a supergradient.
 
     This mirrors `convex_side`.
     """
-    return one_side(function, "concave", mode, alpha_bb)
+    return one_side(function, "concave", mode, alpha_bb, tighten_bounds)
 
 
 def affine_relaxation(
-    function: Callable[..., Array], mode: Mode = "forward", *, alpha_bb: bool = False
+    function: Callable[..., Array],
+    mode: Mode = "forward",
+    *,
+    alpha_bb: bool = False,
+    tighten_bounds: bool = False,
 ) -> Callable[..., AffineRelaxation]:
     """Returns a function that computes affine under- and overestimators of `function`.
 
@@ -247,10 +278,10 @@ def affine_relaxation(
     an `AffineRelaxation`. Its planes touch the convex and concave relaxations at the
     reference point and bound `function` on the whole box, since a tangent plane of a
     convex function stays below it. `function` has to return a single array. Both sides
-    are differentiated in one pass, in forward mode by default. `alpha_bb` is passed to
-    `relax`.
+    are differentiated in one pass, in forward mode by default. `alpha_bb` and
+    `tighten_bounds` are passed to `relax`.
     """
-    relaxed = relax(function, alpha_bb=alpha_bb)
+    relaxed = relax(function, alpha_bb=alpha_bb, tighten_bounds=tighten_bounds)
 
     def sides(
         reference: Array, lower: Array, upper: Array, *arguments: Any

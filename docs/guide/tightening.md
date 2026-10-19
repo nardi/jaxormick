@@ -85,3 +85,43 @@ bounds are the McCormick bounds, since αBB only changes the convex and concave 
 The Hessian of a function of \(n\) variables has \(n^2\) entries, and each costs an
 interval evaluation of a second derivative. See
 [performance](performance.md#cost-of-each-transformation) for measurements.
+
+## Subgradient-tightened bounds
+
+`relax(f, tighten_bounds=True)` narrows the interval of every intermediate value with
+its affine relaxations at the middle of the box, after [Najman and Mitsos
+(2019)](https://doi.org/10.1007/s10898-019-00791-0). A narrower interval of an inner
+value also tightens the relaxations of the values computed from it. In \(e^{x - x^2}\)
+on \([0, 2]\), the rules bound the exponent by \([-4, 2]\), and the tightened bounds by
+\([-2, 1]\).
+
+<!-- name: test_tighten_bounds -->
+```python
+import jax.numpy as jnp
+import numpy as np
+
+import jaxormick as jmk
+
+
+def function(x):
+    return jnp.exp(x[0] - x[0] ** 2)
+
+
+lower = jnp.array([0.0])
+upper = jnp.array([2.0])
+
+plain = jmk.interval(function)(lower, upper)
+tightened = jmk.interval(function, tighten_bounds=True)(lower, upper)
+
+np.testing.assert_allclose(plain, (np.exp(-4.0), np.exp(2.0)), rtol=1e-6)
+np.testing.assert_allclose(tightened, (np.exp(-2.0), np.e), rtol=1e-6)
+```
+
+`interval`, `convex_side`, `concave_side` and `affine_relaxation` take the same keyword.
+The tightened bounds are never wider than the plain ones. Values inside the bodies of
+`lax.scan` and `lax.cond` keep their plain bounds, but the outputs of the loop or branch
+are tightened.
+
+Each relaxed value carries one subgradient per variable, so the cost grows with the
+number of variables, like forward-mode differentiation. See
+[performance](performance.md#cost-of-each-transformation) for measurements.

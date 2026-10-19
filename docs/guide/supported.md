@@ -73,6 +73,8 @@ flow](control_flow.md).
 - **αBB of nonsmooth functions.** `alpha_bb=True` needs a rule for every primitive in
   the Hessian. Hessians of `jnp.abs`, `jnp.maximum`, `jnp.clip` and `jax.nn.softplus`
   contain comparisons and raise `UnsupportedPrimitiveError`.
+- **Tightened bounds in loops and branches.** `tighten_bounds=True` tightens the outputs
+  of `lax.scan` and `lax.cond`, but not the values inside their bodies.
 - **Other functions.** `jnp.arctan`, `jnp.sinh`, `jnp.cosh`, `jax.scipy.special.erf` and
   other functions without a rule raise `UnsupportedPrimitiveError`. [Custom
   rules](extending.md) shows how to add one.

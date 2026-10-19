@@ -1,17 +1,21 @@
 """A jaxpr interpreter that evaluates relaxed operands with the registered rules."""
 
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, TypeAlias, TypeGuard, TypeVar
 
+import equinox as eqx
 import jax
+import jax.numpy as jnp
 from jax import lax
 from jax.core import AbstractValue, Tracer
 from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Literal, Var
+from jaxtyping import Array
 
 from ._errors import UnsupportedPrimitiveError
 from ._relaxation import Relaxation
 from ._rewrite import EquationTable
 from ._rules import RULES, Operand, as_relaxation, is_relaxed
+from ._tightening import Box, Tracked, tightened_bounds
 
 CALL_JAXPR_PARAMS = {
     "jit": "jaxpr",
@@ -33,17 +37,48 @@ IMPLICIT_PRIMITIVES = ("custom_linear_solve", "while")
 """Primitives whose result is defined by a solve or a loop of unknown length."""
 
 
+TrackedOperand: TypeAlias = Operand | Tracked
+"""An operand of a jaxpr whose intermediate bounds are tightened."""
+
+Value = TypeVar("Value", Operand, TrackedOperand)
+"""The type of the operands of an evaluated jaxpr."""
+
+
 def eval_jaxpr(
     jaxpr: Jaxpr | ClosedJaxpr, arguments: Sequence[Operand]
 ) -> list[Operand]:
     """Evaluates a jaxpr on a mix of relaxed and plain operands and returns its outputs."""
+    return run_jaxpr(jaxpr, arguments, eval_equation)
+
+
+def eval_tracked_jaxpr(
+    jaxpr: Jaxpr | ClosedJaxpr, arguments: Sequence[TrackedOperand], box: Box
+) -> list[TrackedOperand]:
+    """Evaluates a jaxpr on tracked and plain operands, tightening every bound."""
+    return run_jaxpr(
+        jaxpr,
+        arguments,
+        lambda equation, inputs: eval_tracked_equation(equation, inputs, box),
+    )
+
+
+def run_jaxpr(
+    jaxpr: Jaxpr | ClosedJaxpr,
+    arguments: Sequence[Value],
+    evaluate: Callable[[JaxprEqn, list[Value]], list[Value]],
+) -> list[Value]:
+    """Evaluates a jaxpr with `evaluate` for each equation and returns its outputs.
+
+    Equations whose inputs depend on the variables are rewritten first, and equal
+    equations run only once.
+    """
     consts: Sequence[Operand] = ()
     if isinstance(jaxpr, ClosedJaxpr):
         # From JAX 0.11 on, every jaxpr holds its constants and is its own `jaxpr`.
         jaxpr, consts = jaxpr.jaxpr, jaxpr.consts
-    environment: dict[Var, Operand] = {}
+    environment: dict[Var, Value] = {}
 
-    def read(atom: Var | Literal) -> Operand:
+    def read(atom: Var | Literal) -> Value:
         """Returns the value bound to a jaxpr atom."""
         return atom.val if isinstance(atom, Literal) else environment[atom]
 
@@ -59,13 +94,140 @@ def eval_jaxpr(
         else:
             inputs = [read(atom) for atom in equation.invars]
             evaluated = equation
-            if any(is_relaxed(value) for value in inputs):
+            if any(depends_on_variables(value) for value in inputs):
                 evaluated = table.rewrite(equation)
                 inputs = [read(atom) for atom in evaluated.invars]
-            outputs = eval_equation(evaluated, inputs)
+            outputs = evaluate(evaluated, inputs)
             table.record(equation, evaluated)
         environment.update(zip(equation.outvars, outputs, strict=True))
     return [read(atom) for atom in jaxpr.outvars]
+
+
+def depends_on_variables(value: TrackedOperand) -> bool:
+    """Returns whether a value is relaxed, with or without tracking."""
+    return isinstance(value, Tracked) or is_relaxed(value)
+
+
+def eval_tracked_equation(
+    equation: JaxprEqn, inputs: list[TrackedOperand], box: Box
+) -> list[TrackedOperand]:
+    """Evaluates one equation at the reference point and at the middle of the box.
+
+    The subgradients at the middle are pushed forward through the equation, and every
+    relaxed output gets the bounds that they tighten. Call primitives are evaluated
+    equation by equation, so their intermediate values are tightened too. The bodies
+    of `scan` and `cond` are not, but their outputs are.
+    """
+    name = equation.primitive.name
+    plain_inputs = [value for value in inputs if not isinstance(value, Tracked)]
+    if len(plain_inputs) == len(inputs):
+        plain_outputs: list[TrackedOperand] = [*bind_plain(equation, plain_inputs)]
+        return plain_outputs
+    if name in CALL_JAXPR_PARAMS:
+        return eval_tracked_jaxpr(equation.params[CALL_JAXPR_PARAMS[name]], inputs, box)
+    at_reference = eval_equation(
+        equation,
+        [
+            value.at_reference if isinstance(value, Tracked) else value
+            for value in inputs
+        ],
+    )
+    # An input that appears twice stays one object, as rules such as `ne` expect.
+    tracked = list(
+        {id(value): value for value in inputs if isinstance(value, Tracked)}.values()
+    )
+
+    def at_middle(sides: list[tuple[Array, Array]]) -> list[Operand]:
+        """Evaluates the equation at the middle, with the given sides of the inputs."""
+        replaced = {
+            id(value): eqx.tree_at(
+                lambda relaxation: (relaxation.convex, relaxation.concave),
+                value.at_middle,
+                value_sides,
+            )
+            for value, value_sides in zip(tracked, sides, strict=True)
+        }
+        middle_inputs = [
+            replaced[id(value)] if isinstance(value, Tracked) else value
+            for value in inputs
+        ]
+        return eval_equation(equation, middle_inputs)
+
+    def differentiable_sides(
+        sides: list[tuple[Array, Array]],
+    ) -> tuple[list[tuple[Array, Array]], list[Operand]]:
+        """Returns the sides of the floating-point relaxed outputs, and all outputs."""
+        outputs = at_middle(sides)
+        return [
+            (output.convex, output.concave)
+            for output in outputs
+            if is_differentiable(output)
+        ], outputs
+
+    sides = [(value.at_middle.convex, value.at_middle.concave) for value in tracked]
+    # Without subgradients of every input, those of the outputs are unknown.
+    is_known = all(is_differentiable(value.at_middle) for value in tracked)
+    if is_known:
+        _, linearized, middle_outputs = jax.linearize(
+            differentiable_sides, sides, has_aux=True
+        )
+        known_tangents = iter(
+            jax.vmap(linearized)(
+                [(value.convex_tangents, value.concave_tangents) for value in tracked]
+            )
+        )
+    else:
+        middle_outputs, known_tangents = at_middle(sides), iter(())
+    outputs: list[TrackedOperand] = []
+    for reference_output, middle_output in zip(
+        at_reference, middle_outputs, strict=True
+    ):
+        match middle_output:
+            case Relaxation() if is_known and is_differentiable(middle_output):
+                convex_tangents, concave_tangents = next(known_tangents)
+                lower, upper = tightened_bounds(
+                    middle_output, convex_tangents, concave_tangents, box
+                )
+            case Relaxation():
+                convex_tangents = concave_tangents = unknown_tangents(
+                    middle_output, box
+                )
+                lower, upper = middle_output.lower, middle_output.upper
+            case _:
+                outputs.append(reference_output)
+                continue
+        outputs.append(
+            Tracked(
+                at_reference=with_bounds(as_relaxation(reference_output), lower, upper),
+                at_middle=with_bounds(middle_output, lower, upper),
+                convex_tangents=convex_tangents,
+                concave_tangents=concave_tangents,
+            )
+        )
+    return outputs
+
+
+def unknown_tangents(relaxation: Relaxation, box: Box) -> Array:
+    """Returns tangents of NaN, which mark the subgradients of a value as unknown."""
+    dtype = relaxation.dtype
+    if not jnp.issubdtype(dtype, jnp.inexact):
+        dtype = box.middle.dtype
+    return jnp.full((box.middle.size, *relaxation.shape), jnp.nan, dtype)
+
+
+def with_bounds(relaxation: Relaxation, lower: Array, upper: Array) -> Relaxation:
+    """Returns the relaxation with its interval replaced."""
+    return Relaxation(
+        lower=lower,
+        upper=upper,
+        convex=relaxation.convex,
+        concave=relaxation.concave,
+    )
+
+
+def is_differentiable(value: Operand) -> TypeGuard[Relaxation]:
+    """Returns whether a value is a relaxation of floating-point dtype."""
+    return isinstance(value, Relaxation) and jnp.issubdtype(value.dtype, jnp.inexact)
 
 
 def eval_equation(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:

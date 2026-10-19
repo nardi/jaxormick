@@ -73,6 +73,13 @@ JAX function, so `interval` bounds the Hessian of `f` over a box. The αBB relax
 rule for that reason. In JAX 0.11, the derivative of `tanh` contains `one_minus_square`,
 which has a rule too.
 
+With `tighten_bounds=True`, the interpreter keeps a second relaxation of every value, at
+the middle of the box, together with its subgradients there. It pushes the subgradients
+through each rule with `jax.linearize`, one direction per variable. This is forward-mode
+differentiation inside the interpreter. Call primitives such as `jit` run equation by
+equation, so their intermediate values are tightened too. The bodies of `scan` and
+`cond` run as one equation, so only their outputs are.
+
 The function to relax can be the same JAX code that a model or a simulation already
 runs, without a separate implementation for the solver.
 

@@ -146,6 +146,30 @@ shrinks with the box. αBB helps most for smooth functions whose factors relax p
 at a time, such as indefinite quadratic forms. Where the Hessian bounds are infinite,
 the αBB sides are infinite too, and the McCormick sides remain.
 
+## Subgradient-tightened bounds
+
+The interval of a factor can be much wider than its range. For \(v = x - x^2\) on
+\([0, 2]\), the rules give \([-4, 2]\), while the range is \([-2, 0.25]\). [Najman and
+Mitsos (2019)](https://doi.org/10.1007/s10898-019-00791-0) narrow such intervals with
+the relaxations themselves. A convex underestimator lies above each of its tangent
+planes. The lowest point of such a plane over the box is therefore a lower bound of the
+factor.
+
+\[
+v^L \leftarrow \max\Bigl(v^L,\ v^{cv}(\bar x) + \sum_i \min\bigl(s_i (x_i^L - \bar x_i),
+\ s_i (x_i^U - \bar x_i)\bigr)\Bigr)
+\]
+
+Here \(s\) is a subgradient of \(v^{cv}\) at a point \(\bar x\) of the box. The concave
+side gives an upper bound in the same way. The narrower interval then tightens the
+relaxations of every factor that depends on \(v\).
+
+The bounds must not depend on the reference point, or the relaxations would stop being
+convex. `jaxormick` therefore takes the subgradients at the middle of the box, from a
+second relaxation at that point. In the example, the convex side of \(v\) is \(-x\) and
+the concave side is \(v\) itself. Their tangent planes at \(\bar x = 1\) give
+\(-2 \le v \le 1\).
+
 ## A worked example
 
 Take \(f(x) = x_1 e^{x_2} - x_2^2\) on \(X = [0, 1] \times [-1, 1]\) at the reference
@@ -181,5 +205,4 @@ yet. [Scott, Stuber and Barton (2011)](https://doi.org/10.1007/s10898-011-9664-7
 generalized them to solutions of implicit equations and differential equations.
 [Tsoukalas and Mitsos (2014)](https://doi.org/10.1007/s10898-014-0176-0) gave a
 composition rule for functions of several arguments, which tightens products and
-divisions. [Najman and Mitsos (2019)](https://doi.org/10.1007/s10898-019-00791-0)
-tightened the intervals of intermediate factors with the affine relaxations themselves.
+divisions.
