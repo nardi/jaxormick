@@ -10,6 +10,9 @@
 - Frostig, R., Johnson, M. J. and Leary, C. (2018). Compiling machine learning programs
   via high-level tracing. *SysML Conference*.
   [PDF](https://mlsys.org/Conferences/doc/2018/146.pdf)
+- Krawczyk, R. (1969). Newton-Algorithmen zur Bestimmung von Nullstellen mit
+  Fehlerschranken. *Computing*, 4(3), 187–201.
+  [doi:10.1007/BF02234767](https://doi.org/10.1007/BF02234767)
 - Liberti, L. and Pantelides, C. C. (2003). Convex envelopes of monomials of odd degree.
   *Journal of Global Optimization*, 25(2), 157–168.
   [doi:10.1023/A:1021924706467](https://doi.org/10.1023/A:1021924706467)
@@ -25,9 +28,15 @@
 - Najman, J. and Mitsos, A. (2019). Tighter McCormick relaxations through subgradient
   propagation. *Journal of Global Optimization*, 75(3), 565–593.
   [doi:10.1007/s10898-019-00791-0](https://doi.org/10.1007/s10898-019-00791-0)
+- Neumaier, A. (1990). *Interval Methods for Systems of Equations*. Cambridge
+  University Press.
+  [doi:10.1017/CBO9780511526473](https://doi.org/10.1017/CBO9780511526473)
 - Scott, J. K., Stuber, M. D. and Barton, P. I. (2011). Generalized McCormick
   relaxations. *Journal of Global Optimization*, 51(4), 569–606.
   [doi:10.1007/s10898-011-9664-7](https://doi.org/10.1007/s10898-011-9664-7)
+- Stuber, M. D., Scott, J. K. and Barton, P. I. (2015). Convex and concave relaxations
+  of implicit functions. *Optimization Methods and Software*, 30(3), 424–460.
+  [doi:10.1080/10556788.2014.924514](https://doi.org/10.1080/10556788.2014.924514)
 - Tsoukalas, A. and Mitsos, A. (2014). Multivariate McCormick relaxations. *Journal of
   Global Optimization*, 59(2–3), 633–662.
   [doi:10.1007/s10898-014-0176-0](https://doi.org/10.1007/s10898-014-0176-0)

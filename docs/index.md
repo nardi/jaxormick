@@ -23,6 +23,10 @@ The transformations are:
 `tighten_bounds=True` narrows intermediate intervals with subgradients. See [tighter
 relaxations](guide/tightening.md).
 
+Solutions of equations from `jnp.linalg.solve`, `lax.custom_linear_solve` and
+`lax.custom_root` relax through their residual. See [implicit
+functions](theory/implicit.md).
+
 ## Installation
 
 ```bash

@@ -58,6 +58,10 @@ variables below.
 `intersect_relaxations` costs one relaxation for each form it combines, plus an
 elementwise maximum and minimum.
 
+An implicit function with \(n\) unknowns costs 15 relaxed evaluations of its residual
+and of the residual's \(n \times n\) Jacobian, plus the inverse of one Jacobian. 10 of
+the evaluations verify the enclosure and 5 tighten the relaxations.
+
 `alpha_bb=True` adds an interval evaluation of the Hessian. The table compares `relax`
 with and without it on batches of 1024 different boxes of the benchmark functions, with
 each coordinate of the box 0.1 or 1 wide. The last two columns give the mean gap between

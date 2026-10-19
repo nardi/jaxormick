@@ -63,6 +63,7 @@ nav:
   - Theory:
       - Convex relaxations: theory/relaxations.md
       - McCormick relaxations: theory/mccormick.md
+      - Implicit functions: theory/implicit.md
       - Relaxations in JAX: theory/jax.md
       - References: theory/references.md
   - User guide:

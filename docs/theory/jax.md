@@ -80,6 +80,12 @@ differentiation inside the interpreter. Call primitives such as `jit` run equati
 equation, so their intermediate values are tightened too. The bodies of `scan` and
 `cond` run as one equation, so only their outputs are.
 
+Implicit functions have their own handling. The interpreter recognizes
+`lax.custom_linear_solve`, and from JAX 0.11 on the `CustomRoot` object of
+`lax.custom_root`. It relaxes their solutions from the residual with the Krawczyk
+operator, which it relaxes with the same interpreter. [Implicit functions](implicit.md)
+describes the method.
+
 The function to relax can be the same JAX code that a model or a simulation already
 runs, without a separate implementation for the solver.
 
@@ -141,6 +147,10 @@ loops. `jaxormick` relaxes the body once and runs it inside a `scan` with a `Rel
 carry, so compile time does not grow with the number of iterations. [Mitsos, Chachuat
 and Barton (2009)](https://doi.org/10.1137/080717341) named this approach McCormick
 relaxations of algorithms.
+
+Loops whose length depends on the data, such as `lax.while_loop`, have no such
+relaxation. Solvers that `lax.custom_root` or `lax.custom_linear_solve` wraps do, since
+the relaxation comes from the residual and not from the loop.
 
 ## Other implementations
 

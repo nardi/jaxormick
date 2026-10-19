@@ -90,3 +90,56 @@ def ramp(x):
 relaxation = jmk.relax(ramp)(jnp.array([0.0]), jnp.array([-1.0]), jnp.array([1.0]))
 assert relaxation.convex == 0.0 and relaxation.concave == 0.5
 ```
+
+## Implicit functions
+
+`jnp.linalg.solve`, `lax.custom_linear_solve` and `lax.custom_root` define their result
+as the solution of equations. `jaxormick` relaxes that solution from the equations, with
+the Krawczyk operator, and not from the solver's steps. The matrix and the right-hand
+side may both depend on the variables.
+
+<!-- name: test_control_flow -->
+```python
+def linear_system(x):
+    matrix = jnp.array([[4.0 + x[0], 1.0], [1.0, 3.0]])
+    return jnp.linalg.solve(matrix, jnp.array([1.0, x[1]]))
+
+
+relaxation = jmk.relax(linear_system)(
+    jnp.array([0.5, 0.5]), jnp.array([0.0, 0.0]), jnp.array([1.0, 1.0])
+)
+solution = linear_system(jnp.array([0.5, 0.5]))
+assert jnp.all(relaxation.convex <= solution + 1e-6)
+assert jnp.all(solution <= relaxation.concave + 1e-6)
+```
+
+`lax.custom_root` needs `jax>=0.11`, where the residual is visible to `jaxormick`. With
+older versions it raises `UnsupportedPrimitiveError`. The solver must find the root near
+the solution at the middle of the box, which `jaxormick` verifies.
+
+<!-- name: test_custom_root; mark: skipif(__import__("jax").__version_info__ < (0, 11), reason="needs jax>=0.11") -->
+```python
+import jax
+import jax.numpy as jnp
+from jax import lax
+
+import jaxormick as jmk
+
+
+def cube_root(x):
+    def newton(residual, guess):
+        step = lambda _, y: y - residual(y) / jax.grad(residual)(y)
+        return lax.fori_loop(0, 20, step, guess)
+
+    return lax.custom_root(
+        lambda y: y**3 + y - x[0], 0.0, newton, lambda g, y: y / jax.grad(g)(0.0)
+    )
+
+
+relaxation = jmk.relax(cube_root)(jnp.array([2.1]), jnp.array([2.0]), jnp.array([2.2]))
+assert relaxation.convex <= cube_root(jnp.array([2.1])) <= relaxation.concave
+```
+
+The verification fails on boxes that are too wide, and the bounds and relaxations of the
+solution are then infinite. Smaller boxes, as branch and bound produces them, make it
+succeed. [Implicit functions](../theory/implicit.md) explains the method.

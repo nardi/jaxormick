@@ -12,6 +12,12 @@ from jax.extend.core import ClosedJaxpr, Jaxpr, JaxprEqn, Literal, Var
 from jaxtyping import Array
 
 from ._errors import UnsupportedPrimitiveError
+from ._implicit import (
+    is_custom_root,
+    relax_custom_root,
+    relax_linear_solve,
+    zeros_of,
+)
 from ._relaxation import Relaxation
 from ._rewrite import EquationTable
 from ._rules import RULES, Operand, as_relaxation, is_relaxed
@@ -27,14 +33,12 @@ CALL_JAXPR_PARAMS = {
     "remat": "jaxpr",
     "remat2": "jaxpr",
     "checkpoint": "jaxpr",
+    "eval_jaxpr": "call_jaxpr",
 }
 """Call primitives, mapped to the parameter that holds the jaxpr they call.
 
 Custom derivative rules are ignored, because only the primal computation is relaxed.
 """
-
-IMPLICIT_PRIMITIVES = ("custom_linear_solve", "while")
-"""Primitives whose result is defined by a solve or a loop of unknown length."""
 
 
 TrackedOperand: TypeAlias = Operand | Tracked
@@ -70,7 +74,8 @@ def run_jaxpr(
     """Evaluates a jaxpr with `evaluate` for each equation and returns its outputs.
 
     Equations whose inputs depend on the variables are rewritten first, and equal
-    equations run only once.
+    equations run only once. An equation without a rule whose outputs only the solvers
+    of `custom_linear_solve` use gets zeros instead, such as the LU factors of a matrix.
     """
     consts: Sequence[Operand] = ()
     if isinstance(jaxpr, ClosedJaxpr):
@@ -85,6 +90,7 @@ def run_jaxpr(
     environment.update(zip(jaxpr.constvars, consts, strict=True))
     environment.update(zip(jaxpr.invars, arguments, strict=True))
     table = EquationTable()
+    solver_only = solver_variables(jaxpr)
     for equation in jaxpr.eqns:
         earlier = table.earlier_outputs(equation)
         if earlier is not None:
@@ -97,10 +103,41 @@ def run_jaxpr(
             if any(depends_on_variables(value) for value in inputs):
                 evaluated = table.rewrite(equation)
                 inputs = [read(atom) for atom in evaluated.invars]
-            outputs = evaluate(evaluated, inputs)
+            try:
+                outputs = evaluate(evaluated, inputs)
+            except UnsupportedPrimitiveError:
+                if not all(variable in solver_only for variable in equation.outvars):
+                    raise
+                outputs = [zeros_of(variable) for variable in equation.outvars]
             table.record(equation, evaluated)
         environment.update(zip(equation.outvars, outputs, strict=True))
     return [read(atom) for atom in jaxpr.outvars]
+
+
+def solver_variables(jaxpr: Jaxpr) -> set[Var]:
+    """Returns the variables that only the solvers of `custom_linear_solve` use.
+
+    The rule of `custom_linear_solve` does not read the constants of its solvers, such
+    as the LU factors of `jnp.linalg.solve`, so they need no relaxation.
+    """
+    needed = variables_of(jaxpr.outvars)
+    solver: set[Var] = set()
+    for equation in reversed(jaxpr.eqns):
+        operands = list(equation.invars)
+        if any(variable in needed for variable in equation.outvars):
+            if equation.primitive.name == "custom_linear_solve":
+                lengths = equation.params["const_lengths"]
+                solver.update(variables_of(operands[lengths.matvec : sum(lengths)]))
+                del operands[lengths.matvec : sum(lengths)]
+            needed.update(variables_of(operands))
+        elif any(variable in solver for variable in equation.outvars):
+            solver.update(variables_of(operands))
+    return solver - needed
+
+
+def variables_of(atoms: Sequence[Var | Literal]) -> set[Var]:
+    """Returns the variables among jaxpr atoms, without the literals."""
+    return {atom for atom in atoms if isinstance(atom, Var)}
 
 
 def depends_on_variables(value: TrackedOperand) -> bool:
@@ -237,12 +274,12 @@ def eval_equation(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
         return bind_plain(equation, inputs)
 
     name = primitive.name
-    if is_implicit(equation):
-        raise UnsupportedPrimitiveError(
-            f"`{name}` defines its result implicitly, by a solve or a loop of unknown "
-            "length, and implicit functions are not supported."
-        )
+    check_explicit(equation)
     match name:
+        case "custom_linear_solve":
+            outputs = relax_linear_solve(equation, inputs, eval_jaxpr)
+        case "call_hi_primitive" if is_custom_root(equation):
+            outputs = relax_custom_root(equation, inputs, eval_jaxpr)
         case "scan":
             outputs = eval_scan(equation, inputs)
         case "cond":
@@ -263,19 +300,24 @@ def eval_equation(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
     ]
 
 
-def is_implicit(equation: JaxprEqn) -> bool:
-    """Returns whether an equation is an implicit function such as `lax.custom_root`.
+def check_explicit(equation: JaxprEqn) -> None:
+    """Raises for a result that a loop or a solver defines, without a rule to relax it.
 
-    `lax.custom_root` produces a `custom_jvp_call` whose primal jaxpr only runs the
-    solver. Relaxing that jaxpr would bound the solver's iterates instead of the root,
-    so it is recognized by the function that defines its derivative.
+    Before JAX 0.11, `lax.custom_root` produces a `custom_jvp_call` whose primal jaxpr
+    only runs the solver. Relaxing that jaxpr would bound the solver's iterates instead
+    of the root, so it is recognized by the function that defines its derivative.
     """
-    if equation.primitive.name in IMPLICIT_PRIMITIVES:
-        return True
+    if equation.primitive.name == "while":
+        raise UnsupportedPrimitiveError(
+            "`while` runs a loop of unknown length, which is not supported."
+        )
     derivative_rule = equation.params.get("jvp_jaxpr_fun")
     debug_info = getattr(derivative_rule, "debug_info", None)
     source = getattr(debug_info, "func_src_info", None) or ""
-    return source.startswith("_root_jvp ")
+    if source.startswith("_root_jvp "):
+        raise UnsupportedPrimitiveError(
+            f"`lax.custom_root` needs `jax>=0.11`, and this is `jax=={jax.__version__}`."
+        )
 
 
 def bind_plain(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:

@@ -196,13 +196,14 @@ Chachuat and Barton (2009)](https://doi.org/10.1137/080717341) showed that subgr
 propagate through the same rules, by applying the chain rule to the formulas above. At
 the median, the subgradient follows whichever argument the median picked. The formulas
 are ordinary functions of \(x\), so automatic differentiation computes the same
-subgradients, as the [next page](jax.md) describes.
+subgradients, as [relaxations in JAX](jax.md) describes.
 
 ## Further work
 
 McCormick relaxations extend in several directions that `jaxormick` does not implement
 yet. [Scott, Stuber and Barton (2011)](https://doi.org/10.1007/s10898-011-9664-7)
-generalized them to solutions of implicit equations and differential equations.
+generalized them to solutions of differential equations. Solutions of equations are
+covered on the [next page](implicit.md).
 [Tsoukalas and Mitsos (2014)](https://doi.org/10.1007/s10898-014-0176-0) gave a
 composition rule for functions of several arguments, which tightens products and
 divisions.

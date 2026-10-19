@@ -51,6 +51,9 @@ loops with a fixed length through `lax.scan` and `lax.fori_loop`, and `lax.cond`
 `lax.switch` with an index that does not depend on the variables. See [control
 flow](control_flow.md).
 
+Implicit functions through `lax.custom_linear_solve`, which covers `jnp.linalg.solve`,
+and through `lax.custom_root` from `jax>=0.11` on.
+
 ## Known limits
 
 - **No outward rounding.** `jaxormick` computes the bounds and relaxations in floating
@@ -60,10 +63,12 @@ flow](control_flow.md).
   Use `float64` (`jax.config.update("jax_enable_x64", True)`) when the bounds need to be
   tight to many digits.
 - **Finite boxes.** Every bound of the box must be finite.
-- **Implicit functions.** `lax.custom_root`, `lax.custom_linear_solve` and the solvers
-  built on them, such as `jnp.linalg.solve`, raise `UnsupportedPrimitiveError`. Relaxing
-  them needs the generalized relaxations of [Scott, Stuber and Barton
-  (2011)](https://doi.org/10.1007/s10898-011-9664-7), which a later version may add.
+- **Implicit functions on wide boxes.** The relaxation of a solution of equations needs
+  a verified enclosure. On wide boxes the verification may fail, and then the bounds and
+  relaxations of the solution are infinite.
+- **`lax.custom_root` before JAX 0.11.** Older versions hide the residual, so
+  `lax.custom_root` raises `UnsupportedPrimitiveError` there. Roots with `has_aux=True`
+  raise on every version.
 - **Loops of unknown length.** `lax.while_loop` and `fori_loop` with traced bounds are
   not supported when the loop depends on the variables.
 - **Comparisons and conditions.** Comparisons, `jnp.where` and `lax.cond` with a

@@ -114,22 +114,7 @@ def test_softplus_ignores_nan_check():
     assert relaxation.convex <= jax.nn.softplus(REFERENCE[0]) <= relaxation.concave
 
 
-def custom_root(x: jax.Array) -> jax.Array:
-    """Returns the square root of `x[1]` as an implicit function."""
-
-    def newton(residual, guess):
-        return lax.fori_loop(0, 10, lambda i, y: y - residual(y) / (2 * y), guess)
-
-    return lax.custom_root(
-        lambda y: y**2 - x[1], 1.0, newton, lambda g, y: y / (2 * jnp.sqrt(x[1]))
-    )
-
-
 UNSUPPORTED = {
-    "custom_root": custom_root,
-    "custom_linear_solve": lambda x: lax.custom_linear_solve(
-        lambda v: 2 * v, x[0], lambda matvec, b: b / 2
-    ),
     "while": lambda x: lax.while_loop(lambda y: y < 3, lambda y: y * 2, x[1]),
     "reduce_max": lambda x: jnp.max(x),
     "comparison": lambda x: jnp.where(x[0] < x[1], x[0], x[1]),
