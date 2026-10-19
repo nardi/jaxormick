@@ -116,7 +116,7 @@ def test_softplus_ignores_nan_check():
 
 UNSUPPORTED = {
     "while": lambda x: lax.while_loop(lambda y: y < 3, lambda y: y * 2, x[1]),
-    "reduce_max": lambda x: jnp.max(x),
+    "argmax": lambda x: jnp.argmax(x).astype(x.dtype),
     "comparison": lambda x: jnp.where(x[0] < x[1], x[0], x[1]),
     "equality": lambda x: jnp.where(x[0] == x[1], x[0], x[1]),
     "relaxed_predicate": lambda x: jnp.where(x[0].astype(bool), x[0], x[1]),

@@ -109,6 +109,12 @@ does the same for a power of a power, such as \((x^2)^2\). The univariate rule r
 the envelope of a power, and no other relaxation of it is tighter. A product of
 different factors, such as \(x (1 - x)\), still goes through the product rule.
 
+A product of many factors, as `jnp.prod` computes, applies the product rule to pairs.
+It multiplies the first half of the factors with the second half, elementwise, and
+repeats this until one factor is left. That takes \(\lceil \log_2 n \rceil\) rounds for
+\(n\) factors. The maximum of many terms, as `jnp.max` computes, combines pairs the
+same way with the rule for \(\max(a, b)\).
+
 ## Intersections of relaxations
 
 Different forms of the same function relax differently, and neither form needs to be

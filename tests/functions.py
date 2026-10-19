@@ -115,5 +115,11 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
         jax.scipy.special.erf(2 * x[0]) - jax.scipy.special.erfc(x[1])
     ),
     "erf_inv": lambda x: jax.scipy.special.erfinv(x[0] / 2.5) * x[1],
+    "reduce_max_min": lambda x: (
+        jnp.max(jnp.stack([x[0] ** 2, x[1], -x[0] * x[1]]))
+        - jnp.min(jnp.array([[x[0], 1.0], [x[1] ** 3, x[0] + x[1]]]), axis=1).sum()
+        + jnp.max(x[None, :1], axis=(0, 1))
+    ),
+    "reduce_prod": lambda x: jnp.prod(jnp.stack([x[0], x[1] + 3, x[0] - x[1], x[1]])),
 }
 """Functions that together exercise every rule."""

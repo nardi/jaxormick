@@ -1,13 +1,14 @@
 """Rules for primitives that rearrange elements, select between them or take extrema."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
+import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 
 from .._errors import UnsupportedPrimitiveError
 from .._relaxation import Relaxation, larger
-from ._arithmetic import add, negate, scale
+from ._arithmetic import add, bilinear, negate, scale
 from ._composition import as_relaxation, is_relaxed
 from ._elementary import absolute
 from ._registry import Operand, Params, register_rule, relaxes
@@ -63,13 +64,13 @@ for name in STRUCTURAL_PRIMITIVES:
     register_rule(name, structural_rule)
 
 
-@relaxes("split")
+@relaxes("split", "unstack")
 def split_rule(
     primitive: Primitive, operands: Sequence[Operand], params: Params
 ) -> list[Relaxation]:
-    """Relaxes `split` exactly by splitting each field into the same pieces.
+    """Relaxes `split` and `unstack` exactly by splitting each field the same way.
 
-    `jax.hessian` produces this primitive.
+    `jax.hessian` produces these primitives.
     """
     pieces = [
         primitive.bind(getattr(as_relaxation(operands[0]), name), **params)
@@ -135,3 +136,59 @@ def min_rule(
     """Relaxes `min` as `−max(−left, −right)`."""
     left, right = operands
     return negate(maximum(negate(as_relaxation(left)), negate(as_relaxation(right))))
+
+
+def reduce_pairwise(
+    operand: Relaxation,
+    axes: Sequence[int],
+    combine: Callable[[Relaxation, Relaxation], Relaxation],
+) -> Relaxation:
+    """Reduces `operand` over `axes` by combining halves until one slice is left.
+
+    The reduced axes are moved to the front and merged into one. Each level combines
+    the first half of the slices with the second and keeps a leftover slice as it is.
+    The result has `log₂ n` levels for `n` slices.
+    """
+    front = tuple(range(len(axes)))
+
+    def merge_axes(field: jax.Array) -> jax.Array:
+        moved = jnp.moveaxis(field, tuple(axes), front)
+        return moved.reshape(-1, *moved.shape[len(axes) :])
+
+    slices = jax.tree.map(merge_axes, operand)
+    while (count := slices.lower.shape[0]) > 1:
+        half = count // 2
+        first = jax.tree.map(lambda field: field[:half], slices)
+        second = jax.tree.map(lambda field: field[half : 2 * half], slices)
+        leftover = jax.tree.map(lambda field: field[2 * half :], slices)
+        slices = jax.tree.map(
+            lambda combined, rest: jnp.concatenate([combined, rest]),
+            combine(first, second),
+            leftover,
+        )
+    return jax.tree.map(lambda field: field[0], slices)
+
+
+@relaxes("reduce_max")
+def reduce_max_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `reduce_max`, which `jnp.max` produces, with the rule of `max`."""
+    return reduce_pairwise(as_relaxation(operands[0]), params["axes"], maximum)
+
+
+@relaxes("reduce_min")
+def reduce_min_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `reduce_min`, which `jnp.min` produces, as `−max(−x)`."""
+    negated = negate(as_relaxation(operands[0]))
+    return negate(reduce_pairwise(negated, params["axes"], maximum))
+
+
+@relaxes("reduce_prod")
+def reduce_prod_rule(
+    primitive: Primitive, operands: Sequence[Operand], params: Params
+) -> Relaxation:
+    """Relaxes `reduce_prod`, which `jnp.prod` produces, with the product rule."""
+    return reduce_pairwise(as_relaxation(operands[0]), params["axes"], bilinear)

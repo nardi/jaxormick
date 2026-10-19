@@ -13,7 +13,15 @@ from hypothesis import given, settings
 import jaxormick as jmk
 from jaxormick._alpha_bb import gershgorin_shifts
 
-NONSMOOTH_NAMES = {"absolute", "maximum", "minimum", "relu", "softplus", "clip"}
+NONSMOOTH_NAMES = {
+    "absolute",
+    "maximum",
+    "minimum",
+    "relu",
+    "softplus",
+    "clip",
+    "reduce_max_min",
+}
 """Test functions whose Hessians contain comparisons, which have no relaxation."""
 
 SMOOTH_NAMES = sorted(set(TEST_FUNCTIONS) - NONSMOOTH_NAMES)

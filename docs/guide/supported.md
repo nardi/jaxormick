@@ -9,6 +9,7 @@
 | `div` | `x / y` | Product with the reciprocal. When the interval of `y` contains zero, the result has infinite bounds |
 | `dot_general` | `x @ y`, `jnp.dot`, `jnp.einsum` | Scaling with a constant matrix, the product rule per term when both operands depend on the variables |
 | `reduce_sum`, `cumsum` | `jnp.sum`, `jnp.cumsum` | Exact composition of the sides |
+| `reduce_prod` | `jnp.prod` | The product rule on pairs of factors, in \(\lceil \log_2 n \rceil\) rounds |
 
 ## Powers and roots
 
@@ -33,6 +34,7 @@
 | `erf`, `erfc`, `erf_inv` | `jax.scipy.special.erf`, `jax.scipy.special.erfc`, `jax.scipy.special.erfinv` | Envelopes. `erf_inv` handles the edge of its domain like `atanh` |
 | `sin`, `cos`, `tan` | `jnp.sin`, `jnp.cos`, `jnp.tan` | Envelopes on intervals of any width. `tan` has infinite bounds on intervals that reach a pole |
 | `max`, `min` | `jnp.maximum`, `jnp.minimum`, `jnp.clip`, `jax.nn.relu` | Through \(\max(a, b) = (a + b + \lvert a - b \rvert) / 2\), with the larger of two convex sides |
+| `reduce_max`, `reduce_min` | `jnp.max`, `jnp.min` | The rule of `max` or `min` on pairs of terms, in \(\lceil \log_2 n \rceil\) rounds |
 
 Functions such as `jax.nn.softplus` and `jax.nn.silu` relax through these rules, since
 JAX builds them from the operations above.
@@ -42,8 +44,8 @@ JAX builds them from the operations above.
 Reshaping, broadcasting, transposing, slicing, splitting, indexing, concatenation,
 padding, reversal and dtype conversion act on the four fields separately and are exact.
 This covers `reshape`, `broadcast_in_dim`, `transpose`, `squeeze`, `expand_dims`,
-`slice`, `split`, `dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`, `rev`,
-`copy` and `convert_element_type`. Indices must not depend on the variables.
+`slice`, `split`, `unstack`, `dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`,
+`rev`, `copy` and `convert_element_type`. Indices must not depend on the variables.
 
 `jnp.where` and `lax.select_n` are supported when the condition does not depend on the
 variables.
@@ -77,8 +79,8 @@ and through `lax.custom_root` from `jax>=0.11` on.
   not supported when the loop depends on the variables.
 - **Comparisons and conditions.** Comparisons, `jnp.where` and `lax.cond` with a
   condition that depends on the variables raise, since the result would jump.
-- **Reductions to a maximum.** `jnp.max`, `jnp.min` and `jnp.argmax` over an axis are
-  not supported yet. A loop of `jnp.maximum` over the elements works.
+- **Positions of extrema.** `jnp.argmax` and `jnp.argmin` of values that depend on the
+  variables raise, since the result would jump.
 - **αBB of nonsmooth functions.** `alpha_bb=True` needs a rule for every primitive in
   the Hessian. Hessians of `jnp.abs`, `jnp.maximum`, `jnp.clip` and `jax.nn.softplus`
   contain comparisons and raise `UnsupportedPrimitiveError`.
