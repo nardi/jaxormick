@@ -51,6 +51,11 @@ def jitted_inner(x: jax.Array) -> jax.Array:
     return jax.jit(lambda y: y[0] * jnp.exp(y[1]))(x)
 
 
+def checkpointed(x: jax.Array) -> jax.Array:
+    """Returns a product inside a `jax.checkpoint` call."""
+    return jax.checkpoint(lambda y: y[0] * jnp.exp(y[1]))(x)
+
+
 def quadratic_form(x: jax.Array) -> jax.Array:
     """Returns `x · (A x)` with a dot product of two relaxed operands."""
     matrix = jnp.array([[2.0, -1.0], [0.5, 1.0]])
@@ -76,6 +81,7 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
     "scanned_sum": scanned_sum,
     "constant_branch": constant_branch,
     "jitted_inner": jitted_inner,
+    "checkpointed": checkpointed,
     "power_from_zero": lambda x: (x[0] + 2) ** 1.5 + x[1],
     "root_like_power": lambda x: (x[1] + 2.5) ** 0.3 * x[0],
     "negative_fractional_power": lambda x: (x[0] + 3) ** -1.7,

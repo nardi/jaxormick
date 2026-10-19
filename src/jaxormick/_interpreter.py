@@ -19,6 +19,7 @@ CALL_JAXPR_PARAMS = {
     "custom_jvp_call": "call_jaxpr",
     "custom_vjp_call": "call_jaxpr",
     "remat": "jaxpr",
+    "remat2": "jaxpr",
     "checkpoint": "jaxpr",
 }
 """Call primitives, mapped to the parameter that holds the jaxpr they call.
