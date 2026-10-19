@@ -101,5 +101,6 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
     "relu": lambda x: jax.nn.relu(x[0] - x[1]),
     "softplus": lambda x: jax.nn.softplus(x[0] * x[1]),
     "clip": lambda x: jnp.clip(x[0] + x[1], -1.0, 0.5),
+    "stacked": lambda x: jnp.stack([x[0] ** 2, jnp.ones(()), x[1]]) @ jnp.arange(3.0),
 }
 """Functions that together exercise every rule."""

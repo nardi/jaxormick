@@ -24,6 +24,7 @@ STRUCTURAL_PRIMITIVES = (
     "slice",
     "dynamic_slice",
     "concatenate",
+    "stack",
     "pad",
     "gather",
     "rev",

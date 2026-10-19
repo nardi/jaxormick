@@ -37,7 +37,7 @@ JAX builds them from the operations above.
 Reshaping, broadcasting, transposing, slicing, indexing, concatenation, padding,
 reversal and dtype conversion act on the four fields separately and are exact. This
 covers `reshape`, `broadcast_in_dim`, `transpose`, `squeeze`, `expand_dims`, `slice`,
-`dynamic_slice`, `gather`, `concatenate`, `pad`, `rev`, `copy` and
+`dynamic_slice`, `gather`, `concatenate`, `stack`, `pad`, `rev`, `copy` and
 `convert_element_type`. Indices must not depend on the variables.
 
 `jnp.where` and `lax.select_n` are supported when the condition does not depend on the

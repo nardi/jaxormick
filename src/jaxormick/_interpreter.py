@@ -1,6 +1,7 @@
 """A jaxpr interpreter that evaluates relaxed operands with the registered rules."""
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import jax
 from jax import lax
@@ -32,13 +33,13 @@ IMPLICIT_PRIMITIVES = ("custom_linear_solve", "while")
 
 
 def eval_jaxpr(
-    jaxpr: Jaxpr | ClosedJaxpr,
-    arguments: Sequence[Operand],
-    consts: Sequence[Operand] = (),
+    jaxpr: Jaxpr | ClosedJaxpr, arguments: Sequence[Operand]
 ) -> list[Operand]:
     """Evaluates a jaxpr on a mix of relaxed and plain operands and returns its outputs."""
+    consts: Sequence[Operand] = ()
     if isinstance(jaxpr, ClosedJaxpr):
-        return eval_jaxpr(jaxpr.jaxpr, arguments, jaxpr.consts)
+        # From JAX 0.11 on, every jaxpr holds its constants and is its own `jaxpr`.
+        jaxpr, consts = jaxpr.jaxpr, jaxpr.consts
     environment: dict[Var, Operand] = {}
 
     def read(atom: Var | Literal) -> Operand:
@@ -155,7 +156,7 @@ def eval_scan(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
     """
     params = equation.params
     body: ClosedJaxpr = params["jaxpr"]
-    consts_count, carry_count = params["num_consts"], params["num_carry"]
+    consts_count, carry_count = scan_counts(params)
     consts = inputs[:consts_count]
     initial = inputs[consts_count : consts_count + carry_count]
     sequences = inputs[consts_count + carry_count :]
@@ -205,6 +206,18 @@ def eval_scan(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
         unroll=params["unroll"],
     )
     return [*final, *stacked]
+
+
+def scan_counts(params: dict[str, Any]) -> tuple[int, int]:
+    """Returns the numbers of constants and carries among the operands of a `scan`.
+
+    From JAX 0.11 on, `scan` describes its three groups of operands by flat trees
+    instead of counts.
+    """
+    if "num_consts" in params:
+        return params["num_consts"], params["num_carry"]
+    consts, carry, _ = params["ft_in"].unpack()
+    return len(list(consts.vals)), len(list(carry.vals))
 
 
 def eval_cond(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
