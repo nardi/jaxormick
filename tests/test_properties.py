@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from conftest import (
+    assert_planes_bound,
     boxes_with_boundary_reference,
     boxes_with_points,
     coordinates,
@@ -84,27 +85,6 @@ def test_degenerate_box_is_exact(name, point):
     value = float(TEST_FUNCTIONS[name](jnp.asarray(x)))
     for field in jax.tree.leaves(relaxation):
         assert abs(float(field) - value) <= slack(value)
-
-
-def assert_planes_bound(
-    planes: jmk.AffineRelaxation,
-    reference: np.ndarray,
-    points: np.ndarray,
-    values: np.ndarray,
-) -> None:
-    """Checks that the planes through `reference` bound `values` at `points`.
-
-    A side may have no finite slope, like `sqrt` at zero. It then has no tangent plane,
-    which callers detect from the infinite coefficients.
-    """
-    allowed = slack(values, planes.convex, planes.concave)
-    offsets = (points - reference).astype(np.float64)
-    if np.all(np.isfinite(planes.convex_gradient)):
-        below = planes.convex + offsets @ np.asarray(planes.convex_gradient)
-        assert np.all(below <= values + allowed)
-    if np.all(np.isfinite(planes.concave_gradient)):
-        above = planes.concave + offsets @ np.asarray(planes.concave_gradient)
-        assert np.all(above >= values - allowed)
 
 
 @pytest.mark.parametrize("name", NAMES)

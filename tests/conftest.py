@@ -7,6 +7,8 @@ import numpy as np
 from hypothesis import strategies as st
 from numpy.typing import ArrayLike
 
+import jaxormick as jmk
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from functions import DOMAIN_LOWER, DOMAIN_UPPER  # noqa: E402
@@ -63,3 +65,24 @@ def boxes_with_boundary_reference(
             case "upper":
                 points[0, axis] = upper[axis]
     return lower, upper, points
+
+
+def assert_planes_bound(
+    planes: jmk.AffineRelaxation,
+    reference: np.ndarray,
+    points: np.ndarray,
+    values: np.ndarray,
+) -> None:
+    """Checks that the planes through `reference` bound `values` at `points`.
+
+    A side may have no finite slope, like `sqrt` at zero. It then has no tangent plane,
+    which callers detect from the infinite coefficients.
+    """
+    allowed = slack(values, planes.convex, planes.concave)
+    offsets = (points - reference).astype(np.float64)
+    if np.all(np.isfinite(planes.convex_gradient)):
+        below = planes.convex + offsets @ np.asarray(planes.convex_gradient)
+        assert np.all(below <= values + allowed)
+    if np.all(np.isfinite(planes.concave_gradient)):
+        above = planes.concave + offsets @ np.asarray(planes.concave_gradient)
+        assert np.all(above >= values - allowed)
