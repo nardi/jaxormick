@@ -5,6 +5,7 @@ These tests run in `float64`, since they compare against envelopes to more digit
 """
 
 import functools
+import math
 from unittest import mock
 
 import jax
@@ -167,3 +168,59 @@ def test_mid_with_crossed_sides():
     np.testing.assert_equal(np.asarray(_composition.mid(convex, concave, 2.0)), concave)
     gradients = jax.grad(_composition.mid, argnums=(0, 1))(convex, concave, 1.5)
     np.testing.assert_equal(np.asarray(gradients), [0.0, 0.0])
+
+
+def autodiff_envelope(function, *arguments):
+    """Returns the envelope from the bracket without its hand-written derivative."""
+    return _composition.envelope_and_slope(function, *arguments)[0]
+
+
+@pytest.mark.parametrize(
+    ("function", "inflection", "lower", "upper", "steps"),
+    [
+        (jnp.tanh, 0.0, -3.0, -1.0, 54),  # left of the inflection point
+        (jnp.tanh, 0.0, 1.0, 3.0, 54),  # right of it, the chord
+        (jnp.tanh, 0.0, -0.5, 3.0, 54),  # across it, the chord
+        (jnp.tanh, 0.0, -3.0, 2.0, 54),  # across it, the curve
+        (jnp.tanh, 0.0, -3.0, 2.0, 1),  # a loose bracket, so the steeper line shows
+        (jnp.cos, -math.pi / 2, -4.0, 1.0, 54),
+        (lambda x: -(x**3), 0.0, -2.0, 1.5, 54),
+    ],
+)
+def test_envelope_derivative_matches_autodiff(
+    function, inflection, lower, upper, steps
+):
+    """Checks the hand-written derivative of the envelope against autodiff.
+
+    The gradients in the bounds come from autodiff in both cases and are compared too.
+    """
+    points = jnp.linspace(lower, upper, 23)[1:-1]
+
+    def envelope(point, lower, upper):
+        return _composition.convex_envelope_of_convex_concave(
+            function, inflection, lower, upper, point
+        )
+
+    gradient = jax.vmap(jax.grad(envelope, argnums=(0, 1, 2)), (0, None, None))
+    with mock.patch.object(_composition, "bisection_steps", lambda dtype: steps):
+        by_hand = gradient(points, jnp.asarray(lower), jnp.asarray(upper))
+        with mock.patch.object(
+            _composition, "envelope_from_bracket", autodiff_envelope
+        ):
+            expected = gradient(points, jnp.asarray(lower), jnp.asarray(upper))
+    np.testing.assert_allclose(by_hand, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_envelope_derivative_in_bounds_alone():
+    """Checks the gradient in the bounds when the point is a constant."""
+
+    def envelope(lower, upper):
+        return _composition.convex_envelope_of_convex_concave(
+            jnp.tanh, 0.0, lower, upper, jnp.asarray(0.5)
+        )
+
+    gradient = jax.grad(envelope, argnums=(0, 1))
+    by_hand = gradient(jnp.asarray(-3.0), jnp.asarray(2.0))
+    with mock.patch.object(_composition, "envelope_from_bracket", autodiff_envelope):
+        expected = gradient(jnp.asarray(-3.0), jnp.asarray(2.0))
+    np.testing.assert_allclose(by_hand, expected, rtol=1e-12, atol=1e-12)

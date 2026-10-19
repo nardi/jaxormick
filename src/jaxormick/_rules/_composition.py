@@ -6,12 +6,14 @@ where that underestimator is smallest, and the same for a concave overestimator.
 helpers here compute these pieces and combine them.
 """
 
+import functools
 from collections.abc import Callable
 from typing import TypeGuard
 
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jax.custom_derivatives import SymbolicZero
 from jaxtyping import Array, ArrayLike
 
 from .._relaxation import Relaxation
@@ -53,6 +55,18 @@ def mid(convex: Array, concave: Array, point: ArrayLike) -> Array:
     return jnp.where(point < smaller, convex, jnp.where(point > larger, concave, point))
 
 
+def secant_slope(
+    value_at_lower: Array, value_at_upper: Array, lower: Array, upper: Array
+) -> Array:
+    """Returns the slope of the line used by `secant`, or zero on an empty interval."""
+    width = upper - lower
+
+    # A safe width keeps the unused branch of `jnp.where` free of NaN values and NaN
+    # gradients.
+    safe_width = jnp.where(width > 0, width, 1)
+    return jnp.where(width > 0, (value_at_upper - value_at_lower) / safe_width, 0)
+
+
 def secant(
     value_at_lower: Array,
     value_at_upper: Array,
@@ -65,12 +79,7 @@ def secant(
     The line is evaluated at `point`. On an interval of zero width it is the constant
     `value_at_lower`.
     """
-    width = upper - lower
-
-    # A safe width keeps the unused branch of `jnp.where` free of NaN values and NaN
-    # gradients.
-    safe_width = jnp.where(width > 0, width, 1)
-    slope = jnp.where(width > 0, (value_at_upper - value_at_lower) / safe_width, 0)
+    slope = secant_slope(value_at_lower, value_at_upper, lower, upper)
     return value_at_lower + slope * (point - lower)
 
 
@@ -241,18 +250,124 @@ def convex_envelope_of_convex_concave(
         )
     else:
         left = right = jnp.clip(tangent_point, lower, right_end)
-
-    follows_function = function(jnp.minimum(point, left)) + derivative(
-        function, left
-    ) * jnp.maximum(point - left, 0)
-    steeper_line = value_at_upper + derivative(function, right) * (point - upper)
-    curve = jnp.maximum(follows_function, steeper_line)
-
-    chord = secant(function(lower), value_at_upper, lower, upper, point)
-    uses_chord = (lower >= inflection) | (tangent_gap(lower) >= 0)
-    return jnp.where(
-        upper <= inflection, function(point), jnp.where(uses_chord, chord, curve)
+    return envelope_from_bracket(
+        function,
+        jnp.asarray(inflection, jnp.result_type(lower)),
+        lower,
+        upper,
+        left,
+        right,
+        point,
     )
+
+
+def envelope_and_slope(
+    function: UnivariateFunction,
+    inflection: Array,
+    lower: Array,
+    upper: Array,
+    left: Array,
+    right: Array,
+    point: Array,
+) -> tuple[Array, Array]:
+    """Returns the envelope of `convex_envelope_of_convex_concave` and its slope at `point`.
+
+    `left` and `right` bracket the tangent point. Where the two underestimators of the
+    curve tie, the slope is the one of `follows_function`, a valid subgradient of their
+    maximum.
+    """
+    value_at_point, slope_at_point = jax.jvp(
+        function, (point,), (jnp.ones_like(point),)
+    )
+    value_at_left, slope_at_left = jax.jvp(function, (left,), (jnp.ones_like(left),))
+    value_at_lower, slope_at_lower = jax.jvp(
+        function, (lower,), (jnp.ones_like(lower),)
+    )
+    value_at_upper = function(upper)
+    slope_at_right = derivative(function, right)
+
+    left_of_bracket = point < left
+    follows_function = jnp.where(
+        left_of_bracket, value_at_point, value_at_left + slope_at_left * (point - left)
+    )
+    steeper_line = value_at_upper + slope_at_right * (point - upper)
+    follows_is_larger = follows_function >= steeper_line
+    curve = jnp.where(follows_is_larger, follows_function, steeper_line)
+    curve_slope = jnp.where(
+        follows_is_larger,
+        jnp.where(left_of_bracket, slope_at_point, slope_at_left),
+        slope_at_right,
+    )
+
+    chord_slope = secant_slope(value_at_lower, value_at_upper, lower, upper)
+    chord = value_at_lower + chord_slope * (point - lower)
+    tangent_gap_at_lower = (
+        value_at_lower + slope_at_lower * (upper - lower) - value_at_upper
+    )
+    uses_chord = (lower >= inflection) | (tangent_gap_at_lower >= 0)
+    left_of_inflection = upper <= inflection
+    value = jnp.where(
+        left_of_inflection, value_at_point, jnp.where(uses_chord, chord, curve)
+    )
+    slope = jnp.where(
+        left_of_inflection,
+        slope_at_point,
+        jnp.where(uses_chord, chord_slope, curve_slope),
+    )
+    return value, slope
+
+
+@functools.partial(jax.custom_jvp, nondiff_argnums=(0,))
+def envelope_from_bracket(
+    function: UnivariateFunction,
+    inflection: Array,
+    lower: Array,
+    upper: Array,
+    left: Array,
+    right: Array,
+    point: Array,
+) -> Array:
+    """Returns the envelope of `convex_envelope_of_convex_concave` from the bracket.
+
+    Its derivative in `point` is written out by hand. Automatic differentiation through
+    the nested selections and maxima of the envelope produces much larger XLA programs,
+    which take about a third longer to compile for the rules that use it.
+    """
+    return envelope_and_slope(function, inflection, lower, upper, left, right, point)[0]
+
+
+def envelope_from_bracket_jvp(
+    function: UnivariateFunction,
+    primals: tuple[Array, ...],
+    tangents: tuple[Array | SymbolicZero, ...],
+) -> tuple[Array, Array]:
+    """Differentiates `envelope_from_bracket`, by hand in `point`.
+
+    Tangent planes only vary the reference point, so the tangents of the bounds and the
+    bracket are usually symbolic zeros. Otherwise their part of the derivative comes
+    from automatic differentiation.
+    """
+    *bounds, point = primals
+    *bound_tangents, point_tangent = tangents
+    value, slope = envelope_and_slope(function, *primals)
+    if isinstance(point_tangent, SymbolicZero):
+        tangent = jnp.zeros_like(value)
+    else:
+        tangent = slope * point_tangent
+    if not all(isinstance(t, SymbolicZero) for t in bound_tangents):
+        dense_tangents = [
+            jnp.zeros_like(b) if isinstance(t, SymbolicZero) else t
+            for b, t in zip(bounds, bound_tangents, strict=True)
+        ]
+        tangent += jax.jvp(
+            lambda *b: envelope_and_slope(function, *b, point)[0],
+            tuple(bounds),
+            tuple(dense_tangents),
+        )[1]
+    return value, tangent
+
+
+envelope_from_bracket.defjvp(envelope_from_bracket_jvp, symbolic_zeros=True)
 
 
 def concave_envelope_of_convex_concave(
