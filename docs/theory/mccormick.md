@@ -98,6 +98,16 @@ does the same for a power of a power, such as \((x^2)^2\). The univariate rule r
 the envelope of a power, and no other relaxation of it is tighter. A product of
 different factors, such as \(x (1 - x)\), still goes through the product rule.
 
+## Intersections of relaxations
+
+Different forms of the same function relax differently, and neither form needs to be
+tighter everywhere. The maximum of two convex underestimators of \(f\) is convex and
+still underestimates \(f\), and the minimum of two concave overestimators is concave and
+overestimates \(f\). The intersection of two intervals that contain the range of \(f\)
+contains it too. Combining relaxations this way therefore gives a relaxation that is at
+least as tight as each of them. A subgradient of the function that attains the maximum
+at the reference point is a subgradient of the maximum.
+
 ## A worked example
 
 Take \(f(x) = x_1 e^{x_2} - x_2^2\) on \(X = [0, 1] \times [-1, 1]\) at the reference

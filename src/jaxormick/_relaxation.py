@@ -1,8 +1,10 @@
+import functools
 from typing import Self
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, PyTree
 
 
 class Relaxation(eqx.Module):
@@ -99,3 +101,32 @@ def smaller(first: Array, second: Array) -> Array:
     This mirrors `larger`.
     """
     return jnp.where(first <= second + tie_tolerance(first, second), first, second)
+
+
+def intersect_relaxations(*relaxations: PyTree[Relaxation]) -> PyTree[Relaxation]:
+    """Returns the intersection of relaxations of the same function over the same box.
+
+    The relaxations may come from different forms of the function, such as
+    `x * (1 - x)` and `0.25 - (x - 0.5) ** 2`, or from different methods. Each field of
+    the result is the tightest of its inputs. The maximum of convex functions is
+    convex and the minimum of concave functions is concave, so the result is a valid
+    relaxation and at least as tight as each input. Its derivatives follow the input
+    that attains the maximum or minimum, which gives a valid subgradient.
+
+    The arguments have the same tree structure, with a `Relaxation` at every leaf.
+    """
+    if not relaxations:
+        raise ValueError("`intersect_relaxations` takes at least one relaxation.")
+
+    def intersect(*leaves: Relaxation) -> Relaxation:
+        """Returns the intersection of the relaxations at one leaf."""
+        return Relaxation(
+            lower=functools.reduce(jnp.maximum, (leaf.lower for leaf in leaves)),
+            upper=functools.reduce(jnp.minimum, (leaf.upper for leaf in leaves)),
+            convex=functools.reduce(larger, (leaf.convex for leaf in leaves)),
+            concave=functools.reduce(smaller, (leaf.concave for leaf in leaves)),
+        ).tightened()
+
+    return jax.tree.map(
+        intersect, *relaxations, is_leaf=lambda leaf: isinstance(leaf, Relaxation)
+    )

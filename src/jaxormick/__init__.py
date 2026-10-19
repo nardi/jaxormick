@@ -2,6 +2,7 @@
 
 from ._errors import UnsupportedPrimitiveError as UnsupportedPrimitiveError
 from ._relaxation import Relaxation as Relaxation
+from ._relaxation import intersect_relaxations as intersect_relaxations
 from ._rules import RULES as RULES
 from ._rules import Operand as Operand
 from ._rules import Params as Params

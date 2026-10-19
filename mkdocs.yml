@@ -68,6 +68,7 @@ nav:
   - User guide:
       - Basic usage: guide/basic.md
       - Affine relaxations: guide/affine.md
+      - Tighter relaxations: guide/tightening.md
       - Parameters and batches: guide/parameters.md
       - Control flow: guide/control_flow.md
       - Supported operations: guide/supported.md

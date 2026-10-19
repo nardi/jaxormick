@@ -55,6 +55,9 @@ Forward mode, the default for gradients, is faster for functions of up to a few 
 variables. Reverse mode is faster for many variables, as for the quadratic form in 100
 variables below.
 
+`intersect_relaxations` costs one relaxation for each form it combines, plus an
+elementwise maximum and minimum.
+
 ## Measured costs
 
 The benchmarks in `benchmarks/` time each transformation on five functions and divide by

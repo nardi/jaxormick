@@ -86,6 +86,9 @@ Other forms need rewriting by hand:
 - Use `jnp.tanh`, `jax.nn.sigmoid` and `jnp.log1p` directly instead of building them
   from `jnp.exp`.
 
+When no single form is best, `jaxormick.intersect_relaxations` combines the relaxations
+of several forms. See [tighter relaxations](tightening.md).
+
 ## Inputs and outputs
 
 The variables are a single array of any shape. The reference point and the bounds have

@@ -4,4 +4,8 @@
 
 ---
 
+::: jaxormick.intersect_relaxations
+
+---
+
 ::: jaxormick.UnsupportedPrimitiveError
