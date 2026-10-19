@@ -37,14 +37,20 @@ def as_relaxation(operand: Operand) -> Relaxation:
 def mid(convex: Array, concave: Array, point: ArrayLike) -> Array:
     """Returns McCormick's mid operator, the median of `convex`, `concave` and `point`.
 
-    The median is written as an explicit choice of branch that relies on
-    `convex ≤ concave`. A median built from `jnp.minimum` and `jnp.maximum` has the same
-    value, but where `convex` and `concave` tie, `jax.grad` splits the gradient between
-    them. That mixes a subgradient of the convex side with a supergradient of the concave
-    side, and the resulting tangent planes can cut off feasible points. Ties are common
-    on the boundary of the box, which is where the solutions of linear programs lie.
+    The median is written as an explicit choice of branch. A median built from
+    `jnp.minimum` and `jnp.maximum` has the same value, but where `convex` and `concave`
+    tie, `jax.grad` splits the gradient between them. That mixes a subgradient of the
+    convex side with a supergradient of the concave side, and the resulting tangent
+    planes can cut off feasible points. Ties are common on the boundary of the box, which
+    is where the solutions of linear programs lie.
+
+    Rounding can leave `concave` an ulp below `convex`. The branches therefore compare
+    `point` against the smaller and the larger side, and a point between the two sides
+    is returned as is. The envelope is then constant at its minimum or maximum, which
+    still bounds the function.
     """
-    return jnp.where(point < convex, convex, jnp.where(point > concave, concave, point))
+    smaller, larger = jnp.minimum(convex, concave), jnp.maximum(convex, concave)
+    return jnp.where(point < smaller, convex, jnp.where(point > larger, concave, point))
 
 
 def secant(

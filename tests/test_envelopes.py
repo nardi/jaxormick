@@ -154,3 +154,16 @@ def test_cos_over_several_periods():
     np.testing.assert_allclose(
         np.asarray(relaxation.convex)[[0, 4]], np.cos(points[[0, 4]])
     )
+
+
+def test_mid_with_crossed_sides():
+    """Checks that a point between crossed sides is returned with zero gradient.
+
+    Rounding can leave the concave side an ulp below the convex side.
+    """
+    convex, concave = jnp.float32(1.5000001), jnp.float32(1.5)
+    np.testing.assert_equal(np.asarray(_composition.mid(convex, concave, 1.5)), 1.5)
+    np.testing.assert_equal(np.asarray(_composition.mid(convex, concave, 1.0)), convex)
+    np.testing.assert_equal(np.asarray(_composition.mid(convex, concave, 2.0)), concave)
+    gradients = jax.grad(_composition.mid, argnums=(0, 1))(convex, concave, 1.5)
+    np.testing.assert_equal(np.asarray(gradients), [0.0, 0.0])

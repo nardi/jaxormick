@@ -131,6 +131,22 @@ def test_affine_planes_bound_function_at_boundary_reference(name, sample):
     assert_planes_bound(planes, points[0], points, values)
 
 
+def test_affine_planes_bound_clip_when_rounding_crosses_sides():
+    """Checks the planes of `clip` at a corner where rounding crosses the relaxations.
+
+    Hypothesis found this box on CI. The inner `max` of the clip has its concave side an
+    ulp below its convex side at the lower corner.
+    """
+    lower = np.full(2, -1.5634626, dtype=np.float32)
+    upper = np.array([1.0, 0.0], dtype=np.float32)
+    grid = np.linspace(0, 1, 9, dtype=np.float32)
+    points = np.stack(np.meshgrid(grid, grid), axis=-1).reshape(-1, 2)
+    points = lower + points * (upper - lower)
+    planes = affine("clip")(lower, lower, upper)
+    values = np.asarray(batched_function("clip")(points))
+    assert_planes_bound(planes, lower, points, values)
+
+
 @pytest.mark.parametrize("name", NAMES)
 @settings(max_examples=20, deadline=None)
 @given(sample=boxes_with_boundary_reference())
