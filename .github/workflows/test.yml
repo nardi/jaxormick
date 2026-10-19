@@ -9,6 +9,39 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }}
+
+      - name: Run tests
+        env:
+          COVERAGE_FILE: .coverage.${{ matrix.python-version }}
+        run: uv run --python ${{ matrix.python-version }} pytest --cov=jaxormick --cov-branch --cov-fail-under=0
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: .coverage.${{ matrix.python-version }}
+          include-hidden-files: true
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: pytest
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +56,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
-      - name: Run tests
-        run: uv run pytest --cov=jaxormick --cov-branch --cov-report=term-missing
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+
+      - name: Combine coverage data
+        run: uv run coverage combine
+
+      - name: Coverage report
+        run: uv run coverage report
 
   lint:
     runs-on: ubuntu-latest
