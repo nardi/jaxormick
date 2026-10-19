@@ -9,7 +9,7 @@ from jax.extend.core import Primitive
 from jaxtyping import Array
 
 from .._errors import UnsupportedPrimitiveError
-from .._relaxation import Relaxation
+from .._relaxation import Relaxation, larger, smaller
 from ._composition import (
     as_relaxation,
     compose_concave,
@@ -76,7 +76,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
     # side of a factor. Since `convex ≤ concave`, the sign of the constant decides which
     # side that is. Choosing by sign keeps `jax.grad` on one side when both tie, for the
     # reason given in `mid`.
-    convex = jnp.maximum(
+    convex = larger(
         smaller_scaled(right.lower, left)
         + smaller_scaled(left.lower, right)
         - left.lower * right.lower,
@@ -84,7 +84,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
         + smaller_scaled(left.upper, right)
         - left.upper * right.upper,
     )
-    concave = jnp.minimum(
+    concave = smaller(
         larger_scaled(right.lower, left)
         + larger_scaled(left.upper, right)
         - left.upper * right.lower,

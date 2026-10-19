@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from functions import jitted_inner, quadratic_form
 from jax.extend.core import Primitive
 
 import jaxormick as jmk
@@ -139,3 +140,36 @@ def test_trivial_integer_powers_are_exact(exponent):
     expected = (1.0, 1.0) if exponent == 0 else (LOWER[0], UPPER[0])
     assert (relaxation.lower, relaxation.upper) == expected
     assert relaxation.convex == relaxation.concave == function(REFERENCE)
+
+
+def test_reverse_mode_gradient_at_tie_is_supergradient():
+    """Checks the reverse-mode gradient where the product rule's pieces tie.
+
+    At the lower end of `x[1]`, the two pieces of the concave side of each product are
+    equal. Compiled reverse mode once mixed the gradients of the pieces with weights
+    that did not sum to one. The correct slope in `x[1]` is that of the secant of
+    `x[1] ** 2`, which is `lower + upper`.
+    """
+    lower = jnp.array([0.0, -0.1695352])
+    upper = jnp.array([0.0, 0.875])
+    _, gradient = jmk.concave_side(quadratic_form, mode="reverse")(lower, lower, upper)
+    np.testing.assert_allclose(gradient[1], lower[1] + upper[1], rtol=1e-6)
+
+
+def test_reverse_mode_gradients_follow_one_piece_at_tie():
+    """Checks that reverse mode takes both slopes of a plane from the same piece.
+
+    At this corner, the two pieces of the convex side of `x[0] * exp(x[1])` tie. When
+    both sides were differentiated in one pass, rounding once took the slope in `x[0]`
+    from one piece and the slope in `x[1]` from the other.
+    """
+    lower = jnp.array([0.375, 0.0])
+    upper = jnp.array([1.0, 1.5])
+    reference = jnp.array([0.375, 1.5])
+    planes = jmk.affine_relaxation(jitted_inner, mode="reverse")(
+        reference, lower, upper
+    )
+    slope = jnp.exp(upper[1])
+    pieces = np.array([[1.0, lower[0] * slope], [slope, upper[0] * slope]])
+    distances = np.abs(pieces - np.asarray(planes.convex_gradient)).max(axis=1)
+    assert distances.min() <= 1e-5

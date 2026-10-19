@@ -56,11 +56,46 @@ class Relaxation(eqx.Module):
         """Returns the relaxation with `convex` and `concave` clipped to the bounds.
 
         The maximum of a convex function and a constant is still convex, so the clipped
-        relaxations stay valid and are never looser.
+        relaxations stay valid. Near a tie, the bound wins, even if the side is a few
+        ulps tighter. Its gradient of zero gives a valid plane even where rounding has
+        pushed the side past the bound.
         """
         return type(self)(
             lower=self.lower,
             upper=self.upper,
-            convex=jnp.maximum(self.convex, self.lower),
-            concave=jnp.minimum(self.concave, self.upper),
+            convex=larger(self.lower, self.convex),
+            concave=smaller(self.upper, self.concave),
         )
+
+
+TIE_TOLERANCE = 16
+"""Ulps of the arguments within which `larger` and `smaller` keep the first one."""
+
+
+def tie_tolerance(first: Array, second: Array) -> Array:
+    """Returns a few ulps of the larger magnitude of the arguments, or zero if infinite."""
+    epsilon = jnp.finfo(jnp.result_type(first, second)).eps
+    tolerance = TIE_TOLERANCE * epsilon * jnp.maximum(jnp.abs(first), jnp.abs(second))
+    return jnp.where(jnp.isfinite(tolerance), tolerance, 0.0)
+
+
+def larger(first: Array, second: Array) -> Array:
+    """Returns the elementwise maximum, differentiated along the argument it picks.
+
+    Where the arguments tie, `jnp.maximum` splits the gradient between them. A plain
+    choice with `jnp.where` does not fix this either. XLA may evaluate the comparison
+    in several fused kernels with different rounding, so that the paths of the gradient
+    pick different arguments, and their sum is no subgradient. This function keeps the
+    first argument unless the second is larger by more than a few ulps. Near a tie,
+    rounding then cannot flip the choice. The result may fall short of the maximum by
+    these few ulps, which is still valid, since each argument is.
+    """
+    return jnp.where(first >= second - tie_tolerance(first, second), first, second)
+
+
+def smaller(first: Array, second: Array) -> Array:
+    """Returns the elementwise minimum, differentiated along the argument it picks.
+
+    This mirrors `larger`.
+    """
+    return jnp.where(first <= second + tie_tolerance(first, second), first, second)

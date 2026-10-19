@@ -81,6 +81,17 @@ its tangent plane can cut off part of the function. Ties happen at the box bound
 where linear programs find their solutions. `jaxormick` therefore writes the median as
 an explicit choice of one branch.
 
+The product rule and the clipping of relaxations to their bounds take maxima and minima
+of relaxations too. These ties are harmless in exact arithmetic, since an average of
+subgradients of the active pieces is a subgradient of their maximum. In floating point
+they are not. XLA may evaluate the comparison that decides a tie in several fused
+kernels, each with its own rounding. The paths of the gradient then disagree about the
+active piece, and their sum is no subgradient. `jaxormick` therefore keeps one fixed
+argument unless the other is larger by more than a few ulps, so that rounding cannot
+flip the choice. The result may fall short of the maximum by these few ulps, which only
+loosens it. When a relaxation is clipped to its bound, the bound wins such a near tie,
+since a constant is a valid plane even where rounding pushed the relaxation past it.
+
 `jnp.where(condition, a, b)` computes both `a` and `b`, also where it discards one of
 them. If `b` is `NaN` where it is not used, for example the logarithm of a negative
 bound, its gradient is still `NaN`, and the gradient of the result becomes `NaN` too.

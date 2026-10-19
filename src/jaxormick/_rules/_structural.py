@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax.extend.core import Primitive
 
 from .._errors import UnsupportedPrimitiveError
-from .._relaxation import Relaxation
+from .._relaxation import Relaxation, larger
 from ._arithmetic import add, negate, scale
 from ._composition import as_relaxation, is_relaxed
 from ._elementary import absolute
@@ -95,7 +95,7 @@ def maximum(left: Relaxation, right: Relaxation) -> Relaxation:
     return Relaxation(
         lower=jnp.maximum(left.lower, right.lower),
         upper=jnp.maximum(left.upper, right.upper),
-        convex=jnp.maximum(formula.convex, jnp.maximum(left.convex, right.convex)),
+        convex=larger(formula.convex, larger(left.convex, right.convex)),
         concave=formula.concave,
     ).tightened()
 
