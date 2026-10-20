@@ -44,6 +44,46 @@ lows, highs = batched(lowers, uppers)
 assert lows.shape == (1024,)
 ```
 
+## Products of many factors
+
+A product of power factors with a different exponent for each factor is one `jnp.prod`
+of a power with an exponent array. The rule for `pow` relaxes the elements with the same
+integer exponent, or the same class of non-integer exponent, together, and `reduce_prod`
+combines the factors in a logarithmic number of levels. The exponent array has to be
+known while tracing, as the one here is.
+
+<!-- name: test_performance -->
+```python
+def product(x, scale):
+    return jnp.prod((scale * x) ** jnp.linspace(0.01, 0.06, x.shape[0]))
+
+
+size = 24
+value, gradient = jmk.convex_side(product)(
+    jnp.ones(size), jnp.full(size, 0.1), jnp.full(size, 10.0), jnp.ones(size)
+)
+assert gradient.shape == (size,)
+```
+
+A Python loop of `*` over the same factors compiles much more slowly. Each `mul` adds
+one product step to a chain as long as the product, and XLA's compile time grows much
+faster than the program does. The table gives the lines of StableHLO of
+`jmk.convex_side` and the time to lower and compile it on the CPU of the machine above,
+with `float64`. The left fold of `*` is not measured beyond 24 factors, and the stack of
+separate scalar powers beyond 30.
+
+| Factors | Left fold of `*` | `jnp.prod` of stacked powers | `jnp.prod` with an array exponent |
+| --- | --- | --- | --- |
+| 8 | 2366 lines, 3.2 s | 1958 lines, 2.2 s | 966 lines, 1.1 s |
+| 16 | 4918 lines, 14.4 s | 3409 lines, 3.8 s | 1225 lines, 1.8 s |
+| 24 | 7470 lines, 69.8 s | 4851 lines, 6.2 s | 1463 lines, 2.3 s |
+| 30 | | 5766 lines, 7.3 s | 1484 lines, 2.6 s |
+| 1000 | | | 2779 lines, 8.7 s |
+
+Stacking the separate powers and calling `jnp.prod` helps, but it builds one relaxation
+for each factor. Prefer the array exponent, or one scalar exponent when the factors
+share it.
+
 ## Cost of each transformation
 
 `interval`, `convex_side` and `concave_side` compute less than `relax` and

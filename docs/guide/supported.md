@@ -16,7 +16,7 @@
 | Operation | JAX functions | Relaxation |
 | --- | --- | --- |
 | `integer_pow`, `square` | `x ** 2`, `x ** 3`, `jnp.square` | Envelopes. Even powers are convex, odd powers use the envelope of [Liberti and Pantelides (2003)](https://doi.org/10.1023/A:1021924706467) when the interval contains zero. Negative powers have infinite bounds when the interval contains zero. A power of a power, such as `(x ** 2) ** 2`, becomes one power |
-| `pow` | `x ** 1.5` | Constant exponents only, on positive intervals for non-integer exponents |
+| `pow` | `x ** 1.5`, `x ** jnp.linspace(0.01, 0.06, n)` | Exponents known while tracing, as a scalar or as an array that broadcasts against the base. Elements with the same integer exponent or the same non-integer class (above 1, between 0 and 1, below 0) are relaxed together. Non-integer exponents need positive intervals |
 | `sqrt`, `rsqrt` | `jnp.sqrt`, `lax.rsqrt` | Envelopes on nonnegative and positive intervals |
 | `one_minus_square` | \(1 - x^2\) in the derivative of `jnp.tanh` in JAX 0.11 | Envelopes |
 
