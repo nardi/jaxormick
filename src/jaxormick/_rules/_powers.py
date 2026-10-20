@@ -9,6 +9,7 @@ import numpy as np
 from jax import lax
 from jax.core import Tracer
 from jax.extend.core import Primitive
+from numpy.typing import NDArray
 
 from .._errors import UnsupportedPrimitiveError
 from .._relaxation import Relaxation
@@ -147,20 +148,75 @@ def decreasing_on_positive(
     return select(is_defined, composed, fallback)
 
 
-def fractional_power(operand: Relaxation, exponent: float) -> Relaxation:
-    """Relaxes `operand ** exponent` for a constant exponent that is not an integer.
+def fractional_power(
+    operand: Relaxation, exponent: float | NDArray[np.float64]
+) -> Relaxation:
+    """Relaxes `operand ** exponent` for constant exponents that are not integers.
 
     Such powers are defined for nonnegative arguments only. They are convex and
     increasing for `exponent > 1`, concave and increasing for `0 < exponent < 1`, and
-    convex and decreasing on positive arguments for `exponent < 0`.
+    convex and decreasing on positive arguments for `exponent < 0`. The exponent is a
+    number, or an array with the shape of the operand whose elements all lie in the
+    same one of these three classes.
     """
+    exponent_values = jnp.asarray(exponent, operand.dtype)
 
     def power(point: jax.Array) -> jax.Array:
-        return jnp.power(point, exponent)
+        return jnp.power(point, exponent_values)
 
-    if exponent > 0:
-        return increasing_on_nonnegative(operand, power, is_convex=exponent > 1)
+    if np.all(exponent > 0):
+        return increasing_on_nonnegative(
+            operand, power, is_convex=bool(np.all(exponent > 1))
+        )
     return decreasing_on_positive(operand, power)
+
+
+def power_with_constant_exponent(operand: Relaxation, exponent: float) -> Relaxation:
+    """Relaxes `operand ** exponent` for one constant exponent, integer or not."""
+    if exponent == round(exponent):
+        return integer_power(operand, round(exponent))
+    return fractional_power(operand, exponent)
+
+
+def power_by_exponent_class(
+    operand: Relaxation, exponents: NDArray[np.float64]
+) -> Relaxation:
+    """Relaxes `operand ** exponents` elementwise for exponents of different classes.
+
+    The elements are grouped by exponent, with one group for each distinct integer and
+    one for each class of `fractional_power`. A group is relaxed on its own elements
+    with the rule of its class, and the results go back to their original positions.
+    A group never runs on an element that belongs to another one, so a rule does not
+    meet arguments outside its domain. Its derivatives then stay free of NaN values.
+    The program grows with the number of groups, and not with the number of elements.
+    """
+    flat_exponents = exponents.reshape(-1)
+    is_integer = flat_exponents == np.round(flat_exponents)
+    classes = [
+        flat_exponents == value for value in np.unique(flat_exponents[is_integer])
+    ] + [
+        ~is_integer & (flat_exponents > 1),
+        ~is_integer & (flat_exponents > 0) & (flat_exponents < 1),
+        ~is_integer & (flat_exponents < 0),
+    ]
+    groups = [np.flatnonzero(members) for members in classes if members.any()]
+    flat_operand = jax.tree.map(lambda field: field.reshape(-1), operand)
+
+    def relax_group(indices: NDArray[np.intp]) -> Relaxation:
+        """Relaxes the power of the elements at `indices`, which share a class."""
+        members = jax.tree.map(lambda field: field[indices], flat_operand)
+        group_exponents = flat_exponents[indices]
+        if is_integer[indices[0]]:
+            return integer_power(members, round(group_exponents[0]))
+        return fractional_power(members, group_exponents)
+
+    # Concatenating the groups reorders the elements, and the inverse permutation of
+    # that order restores them.
+    inverse_order = np.argsort(np.concatenate(groups))
+    return jax.tree.map(
+        lambda *parts: jnp.concatenate(parts)[inverse_order].reshape(exponents.shape),
+        *(relax_group(indices) for indices in groups),
+    )
 
 
 @relaxes("integer_pow")
@@ -220,7 +276,9 @@ def pow_rule(
     """Relaxes `pow` with a constant exponent, which `x ** 1.5` and `x ** 2.0` produce.
 
     The exponent has to be a literal or a closed-over constant, so that its value is
-    known while tracing. Integer-valued exponents use the rules of `integer_pow`.
+    known while tracing. It may be an array that broadcasts against the base, with a
+    different exponent for each element. Integer-valued exponents use the rules of
+    `integer_pow`.
     """
     base, exponent = operands
     if is_relaxed(exponent):
@@ -231,8 +289,14 @@ def pow_rule(
         raise UnsupportedPrimitiveError(
             "`pow` needs an exponent whose value is known while tracing."
         )
-    value = float(np.asarray(exponent))
+    exponents = np.asarray(exponent, dtype=np.float64)
     base = as_relaxation(base)
-    if value == round(value):
-        return integer_power(base, round(value))
-    return fractional_power(base, value)
+    shape = np.broadcast_shapes(base.shape, exponents.shape)
+    base = jax.tree.map(lambda field: jnp.broadcast_to(field, shape), base)
+    match np.unique(exponents).tolist():
+        case []:
+            return base
+        case [value]:
+            return power_with_constant_exponent(base, value)
+        case _:
+            return power_by_exponent_class(base, np.broadcast_to(exponents, shape))

@@ -85,6 +85,12 @@ TEST_FUNCTIONS: dict[str, Callable[[jax.Array], jax.Array]] = {
     "power_from_zero": lambda x: (x[0] + 2) ** 1.5 + x[1],
     "root_like_power": lambda x: (x[1] + 2.5) ** 0.3 * x[0],
     "negative_fractional_power": lambda x: (x[0] + 3) ** -1.7,
+    "fractional_array_exponents": lambda x: jnp.prod(
+        jnp.stack([x[0] + 3, x[1] + 3, x[0] + x[1] + 5]) ** jnp.array([-1.7, 0.3, 1.5])
+    ),
+    "integer_array_exponents": lambda x: jnp.sum(
+        jnp.stack([x[0], x[1], x[0] + 3, x[1] - x[0]]) ** jnp.array([2, 3, -2, 1])
+    ),
     "float_square": lambda x: (x[0] - x[1]) ** 2.0,
     "log_sum": lambda x: jnp.log(x[0] + x[1] + 4.5),
     "sqrt_from_zero": lambda x: jnp.sqrt(x[0] + 2) - x[1] ** 2,
