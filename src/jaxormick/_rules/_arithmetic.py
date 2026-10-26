@@ -9,7 +9,7 @@ from jax.extend.core import Primitive
 from jaxtyping import Array
 
 from .._errors import UnsupportedPrimitiveError
-from .._relaxation import Relaxation, larger, smaller
+from .._relaxation import Relaxation, larger, scale_tolerance, smaller
 from ._composition import (
     as_relaxation,
     compose_concave,
@@ -77,7 +77,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
     # side that is. Choosing by sign keeps `jax.grad` on one side when both tie, for the
     # reason given in `mid`. The terms can cancel to a value near zero, so the tie
     # tolerance scales with the corner products, which bound every term.
-    scale = jnp.max(jnp.abs(corner_products), axis=0)
+    tolerance = scale_tolerance(jnp.max(jnp.abs(corner_products), axis=0))
     convex = larger(
         smaller_scaled(right.lower, left)
         + smaller_scaled(left.lower, right)
@@ -85,7 +85,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
         smaller_scaled(right.upper, left)
         + smaller_scaled(left.upper, right)
         - left.upper * right.upper,
-        scale=scale,
+        tolerance=tolerance,
     )
     concave = smaller(
         larger_scaled(right.lower, left)
@@ -94,7 +94,7 @@ def bilinear(left: Relaxation, right: Relaxation) -> Relaxation:
         larger_scaled(right.upper, left)
         + larger_scaled(left.lower, right)
         - left.lower * right.upper,
-        scale=scale,
+        tolerance=tolerance,
     )
     return Relaxation(
         lower=jnp.min(corner_products, axis=0),

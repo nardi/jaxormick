@@ -75,25 +75,39 @@ TIE_TOLERANCE = 16
 
 
 def tie_tolerance(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
-    """Returns a few ulps of the larger magnitude of the arguments, or zero if infinite.
+    """Returns a few ulps of the larger magnitude of the arguments.
 
     An argument that is a sum of larger terms can be near zero while its rounding error
     is a few ulps of those terms. Callers then pass the size of the terms as `scale`,
     and the tolerance covers it too. Near zero, the tolerance stays at a few times the
     smallest normal number. XLA may flush smaller numbers to zero, and a tolerance of
-    zero would not stop ties flipping.
+    zero would not stop ties flipping. The tolerance is at most the largest finite
+    number, so that infinite arguments tie only with themselves: `first - tolerance`
+    stays finite, and `-inf` is not within it of anything finite.
     """
     limits = jnp.finfo(jnp.result_type(first, second))
-    magnitude = jnp.maximum(
-        jnp.maximum(jnp.abs(first), jnp.abs(second)), jnp.abs(scale)
-    )
-    tolerance = TIE_TOLERANCE * jnp.maximum(
-        limits.eps * magnitude, limits.smallest_normal
-    )
-    return jnp.where(jnp.isfinite(tolerance), tolerance, 0.0)
+    magnitude = jnp.maximum(jnp.abs(first), jnp.abs(second))
+    if not (isinstance(scale, int | float) and scale == 0):
+        magnitude = jnp.maximum(magnitude, jnp.abs(scale))
+    tolerance = TIE_TOLERANCE * (limits.eps * magnitude + limits.smallest_normal)
+    return jnp.minimum(tolerance, limits.max)
 
 
-def larger(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
+def scale_tolerance(scale: Array) -> Array:
+    """Returns the tie tolerance for values of magnitude `scale`, to share between calls."""
+    limits = jnp.finfo(scale.dtype)
+    return jnp.minimum(
+        TIE_TOLERANCE * (limits.eps * jnp.abs(scale) + limits.smallest_normal),
+        limits.max,
+    )
+
+
+def larger(
+    first: Array,
+    second: Array,
+    scale: ArrayLike = 0.0,
+    tolerance: Array | None = None,
+) -> Array:
     """Returns the elementwise maximum, differentiated along the argument it picks.
 
     Where the arguments tie, `jnp.maximum` splits the gradient between them. A plain
@@ -103,18 +117,25 @@ def larger(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
     first argument unless the second is larger by more than a few ulps. Near a tie,
     rounding then cannot flip the choice. The result may fall short of the maximum by
     these few ulps, which is still valid, since each argument is. `scale` is passed to
-    `tie_tolerance`.
+    `tie_tolerance`, unless the caller passes the `tolerance` itself.
     """
-    tolerance = tie_tolerance(first, second, scale)
+    if tolerance is None:
+        tolerance = tie_tolerance(first, second, scale)
     return jnp.where(first >= second - tolerance, first, second)
 
 
-def smaller(first: Array, second: Array, scale: ArrayLike = 0.0) -> Array:
+def smaller(
+    first: Array,
+    second: Array,
+    scale: ArrayLike = 0.0,
+    tolerance: Array | None = None,
+) -> Array:
     """Returns the elementwise minimum, differentiated along the argument it picks.
 
     This mirrors `larger`.
     """
-    tolerance = tie_tolerance(first, second, scale)
+    if tolerance is None:
+        tolerance = tie_tolerance(first, second, scale)
     return jnp.where(first <= second + tolerance, first, second)
 
 
