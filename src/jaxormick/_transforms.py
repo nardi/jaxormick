@@ -17,6 +17,7 @@ from jaxtyping import Array, ArrayLike, PyTree
 
 from ._alpha_bb import alpha_bb_sides
 from ._errors import UnsupportedPrimitiveError
+from ._implicit import root_tape
 from ._interpreter import eval_jaxpr, eval_tracked_jaxpr
 from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import as_relaxation
@@ -55,7 +56,8 @@ def relax(
     *,
     alpha_bb: bool = False,
     tighten_bounds: bool = False,
-) -> Callable[..., PyTree[Relaxation]]:
+    enclosures: bool = False,
+) -> Callable[..., Any]:
     """Returns a function that computes McCormick relaxations of `function` over a box.
 
     `function` takes an array of variables, then any constant arguments. The returned
@@ -77,13 +79,60 @@ def relax(
     the affine relaxations at the middle of the box, after Najman and Mitsos (2019).
     Narrower intermediate intervals also tighten the relaxations that depend on them.
     This costs about as much as one forward-mode derivative of the relaxation.
+
+    With `enclosures=True`, the returned function takes a flat array of enclosures of
+    the roots of `lax.custom_root` after the box, and returns them after the relaxations.
+    A root enclosed by a box that contains this one needs no search for an enclosure, and
+    the verified enclosures come back for the boxes inside this one. Use
+    `root_enclosure_size` for the length of the array. Entries that are NaN stand for no
+    enclosure. Only roots at the top level of `function` take part, and `tighten_bounds`
+    cannot be combined with enclosures.
     """
-    hessian_bounds = interval(jax.hessian(function)) if alpha_bb else None
+    if enclosures and tighten_bounds:
+        raise ValueError(
+            "Enclosures of roots cannot be combined with `tighten_bounds`."
+        )
+    relax_at = relaxation_tracer(function, alpha_bb, tighten_bounds)
+
+    if enclosures:
+
+        @functools.wraps(function)
+        @jax.jit
+        def relaxed_with_enclosures(
+            reference: ArrayLike,
+            lower: ArrayLike,
+            upper: ArrayLike,
+            enclosure: ArrayLike,
+            *arguments: Any,
+        ) -> tuple[PyTree[Relaxation], Array]:
+            enclosure = as_float_array(enclosure)
+            with root_tape(enclosure) as tape:
+                relaxations = relax_at(reference, lower, upper, arguments)
+            return relaxations, tape.collect(enclosure.dtype)
+
+        return relaxed_with_enclosures
 
     @functools.wraps(function)
     @jax.jit
     def relaxed(
         reference: ArrayLike, lower: ArrayLike, upper: ArrayLike, *arguments: Any
+    ) -> PyTree[Relaxation]:
+        return relax_at(reference, lower, upper, arguments)
+
+    return relaxed
+
+
+def relaxation_tracer(
+    function: Callable[..., PyTree[Array]], alpha_bb: bool, tighten_bounds: bool
+) -> Callable[[ArrayLike, ArrayLike, ArrayLike, Any], PyTree[Relaxation]]:
+    """Returns the function that traces the relaxation of `function` for `relax`.
+
+    It takes the reference point, the box and the tuple of constant arguments.
+    """
+    hessian_bounds = interval(jax.hessian(function)) if alpha_bb else None
+
+    def relax_at(
+        reference: ArrayLike, lower: ArrayLike, upper: ArrayLike, arguments: Any
     ) -> PyTree[Relaxation]:
         reference = as_float_array(reference)
         lower = as_float_array(lower).astype(reference.dtype)
@@ -113,7 +162,33 @@ def relax(
             ]
         return jax.tree.unflatten(structure, relaxations)
 
-    return relaxed
+    return relax_at
+
+
+def root_enclosure_size(
+    function: Callable[..., PyTree[Array]],
+    reference: ArrayLike | jax.ShapeDtypeStruct,
+    lower: ArrayLike | jax.ShapeDtypeStruct,
+    upper: ArrayLike | jax.ShapeDtypeStruct,
+    *arguments: Any,
+) -> int:
+    """Returns the length of the enclosures array of `relax(function, enclosures=True)`.
+
+    Every root of `lax.custom_root` at the top level of `function` with `k` entries takes
+    `2k` numbers, the lower and then the upper bounds of its enclosure. The arguments can
+    be arrays or `jax.ShapeDtypeStruct`s.
+    """
+    trace = relaxation_tracer(function, False, False)
+
+    def measure(*values: Any) -> PyTree[Relaxation]:
+        with root_tape(None) as tape:
+            result = trace(values[0], values[1], values[2], values[3:])
+        sizes.append(tape.total())
+        return result
+
+    sizes: list[int] = []
+    jax.eval_shape(measure, reference, lower, upper, *arguments)
+    return sizes[0]
 
 
 def with_alpha_bb(
@@ -154,15 +229,44 @@ def with_alpha_bb(
 
 
 def interval(
-    function: Callable[..., PyTree[Array]], *, tighten_bounds: bool = False
-) -> Callable[..., tuple[PyTree[Array], PyTree[Array]]]:
+    function: Callable[..., PyTree[Array]],
+    *,
+    tighten_bounds: bool = False,
+    enclosures: bool = False,
+) -> Callable[..., Any]:
     """Returns a function that computes interval bounds of `function` over a box.
 
     The returned function takes the lower and upper bounds of the box, then the
     constant arguments of `function`, and returns the lower and upper bounds of its
     output. The convex and concave sides are not needed, so XLA removes them, unless
     `tighten_bounds`, which is passed to `relax`, needs them.
+
+    With `enclosures=True`, the returned function takes the enclosures of the roots after
+    the box, as `relax` does, and returns the verified ones after the bounds.
     """
+    if enclosures:
+        relaxed_with_enclosures = relax(
+            function, tighten_bounds=tighten_bounds, enclosures=True
+        )
+
+        @functools.wraps(function)
+        @jax.jit
+        def bounds_with_enclosures(
+            lower: ArrayLike, upper: ArrayLike, enclosure: ArrayLike, *arguments: Any
+        ) -> tuple[PyTree[Array], PyTree[Array], Array]:
+            lower, upper = as_float_array(lower), as_float_array(upper)
+            relaxations, found = relaxed_with_enclosures(
+                (lower + upper) / 2, lower, upper, enclosure, *arguments
+            )
+            is_leaf = lambda leaf: isinstance(leaf, Relaxation)  # noqa: E731
+            return (
+                jax.tree.map(lambda r: r.lower, relaxations, is_leaf=is_leaf),
+                jax.tree.map(lambda r: r.upper, relaxations, is_leaf=is_leaf),
+                found,
+            )
+
+        return bounds_with_enclosures
+
     relaxed = relax(function, tighten_bounds=tighten_bounds)
 
     @functools.wraps(function)
@@ -211,8 +315,56 @@ def one_side(
     mode: Mode,
     alpha_bb: bool,
     tighten_bounds: bool,
-) -> Callable[..., tuple[Array, Array]]:
+    enclosures: bool = False,
+) -> Callable[..., tuple[Any, ...]]:
     """Returns a function that computes one side of the relaxation and its gradient."""
+    if enclosures:
+        relaxed_with_enclosures = relax(
+            function,
+            alpha_bb=alpha_bb,
+            tighten_bounds=tighten_bounds,
+            enclosures=True,
+        )
+
+        def value_with_enclosures(
+            reference: Array,
+            lower: Array,
+            upper: Array,
+            enclosure: Array,
+            *arguments: Any,
+        ) -> tuple[Array, tuple[Array, Array]]:
+            relaxation, found = relaxed_with_enclosures(
+                reference, lower, upper, enclosure, *arguments
+            )
+            side_value = getattr(relaxation, side)
+            return side_value, (side_value, found)
+
+        differentiated_with_enclosures = {
+            "forward": jax.jacfwd,
+            "reverse": jax.jacrev,
+        }.get(mode)
+        if differentiated_with_enclosures is None:
+            raise ValueError(f"`mode` must be 'forward' or 'reverse', not {mode!r}.")
+        differentiate = differentiated_with_enclosures(
+            value_with_enclosures, has_aux=True
+        )
+
+        @functools.wraps(function)
+        @jax.jit
+        def value_gradient_enclosures(
+            reference: ArrayLike,
+            lower: ArrayLike,
+            upper: ArrayLike,
+            enclosure: ArrayLike,
+            *arguments: Any,
+        ) -> tuple[Array, Array, Array]:
+            gradient, (side_value, found) = differentiate(
+                as_float_array(reference), lower, upper, enclosure, *arguments
+            )
+            return side_value, gradient, found
+
+        return value_gradient_enclosures
+
     relaxed = relax(function, alpha_bb=alpha_bb, tighten_bounds=tighten_bounds)
 
     def value(reference: Array, lower: Array, upper: Array, *arguments: Any) -> Array:
@@ -239,7 +391,8 @@ def convex_side(
     *,
     alpha_bb: bool = False,
     tighten_bounds: bool = False,
-) -> Callable[..., tuple[Array, Array]]:
+    enclosures: bool = False,
+) -> Callable[..., tuple[Any, ...]]:
     """Returns a function that computes the convex relaxation and a subgradient.
 
     The returned function takes the same arguments as the one from `relax` and returns
@@ -247,8 +400,11 @@ def convex_side(
     gradient there. `function` has to return a single array. Computing one side alone
     lets XLA remove the computations that only the other side needs. `alpha_bb` and
     `tighten_bounds` are passed to `relax`.
+
+    With `enclosures=True`, the function takes the enclosures of the roots after the box
+    and returns the verified ones as a third result. See `relax`.
     """
-    return one_side(function, "convex", mode, alpha_bb, tighten_bounds)
+    return one_side(function, "convex", mode, alpha_bb, tighten_bounds, enclosures)
 
 
 def concave_side(
@@ -257,12 +413,13 @@ def concave_side(
     *,
     alpha_bb: bool = False,
     tighten_bounds: bool = False,
-) -> Callable[..., tuple[Array, Array]]:
+    enclosures: bool = False,
+) -> Callable[..., tuple[Any, ...]]:
     """Returns a function that computes the concave relaxation and a supergradient.
 
     This mirrors `convex_side`.
     """
-    return one_side(function, "concave", mode, alpha_bb, tighten_bounds)
+    return one_side(function, "concave", mode, alpha_bb, tighten_bounds, enclosures)
 
 
 def affine_relaxation(

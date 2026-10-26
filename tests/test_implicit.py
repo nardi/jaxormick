@@ -1,6 +1,7 @@
 """Relaxations of implicit functions, from `lax.custom_root` and linear solves."""
 
 import functools
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -192,3 +193,184 @@ def test_relaxed_root_lowers_without_library_calls():
     relaxed = jax.jit(jmk.relax(cubic_root))
     text = relaxed.lower(jnp.zeros(2), -jnp.ones(2), jnp.ones(2)).as_text()
     assert "lapack" not in text
+
+
+def two_roots(x: jax.Array) -> jax.Array:
+    """Returns the sum of the roots of the cubic for two different right-hand sides."""
+    return cubic_root(x) + cubic_root(x * jnp.array([0.5, 1.0]))
+
+
+def roots_in_calls(x: jax.Array) -> jax.Array:
+    """Returns the root of the cubic inside `jax.jit`, which takes no enclosure."""
+    return jax.jit(cubic_root)(x)
+
+
+def box_bounds(size: int = 2):
+    """Returns example arguments for the size query: a reference point and a box."""
+    return jnp.zeros(size), -jnp.ones(size), jnp.ones(size)
+
+
+@pytest.mark.parametrize(
+    ("function", "size"),
+    [
+        (cubic_root, 2),
+        (two_roots, 4),
+        (roots_in_calls, 0),
+        (linear_system, 0),
+        (lambda x: jnp.sin(x), 0),
+    ],
+)
+def test_root_enclosure_size(function, size):
+    """Checks that only the roots at the top level count, with two numbers per entry."""
+    assert jmk.root_enclosure_size(function, *box_bounds()) == size
+
+
+def test_size_query_accepts_shape_structs():
+    """Checks that the size can be asked with shapes instead of arrays."""
+    shape = jax.ShapeDtypeStruct((2,), jnp.float32)
+    assert jmk.root_enclosure_size(cubic_root, shape, shape, shape) == 2
+
+
+@pytest.mark.parametrize(
+    "function", [cubic_root, two_roots, roots_in_calls, linear_system]
+)
+def test_missing_enclosures_change_nothing(function):
+    """Checks that NaN enclosures give the relaxation that `relax` gives without them."""
+    reference, lower, upper = (
+        jnp.array([0.1, 0.05]),
+        jnp.array([-0.1, -0.1]),
+        jnp.array([0.2, 0.1]),
+    )
+    size = jmk.root_enclosure_size(function, reference, lower, upper)
+    plain = jmk.relax(function)(reference, lower, upper)
+    enclosed, found = jmk.relax(function, enclosures=True)(
+        reference, lower, upper, jnp.full(size, jnp.nan)
+    )
+    for first, second in zip(
+        jax.tree.leaves(plain), jax.tree.leaves(enclosed), strict=True
+    ):
+        np.testing.assert_array_equal(first, second)
+    assert found.shape == (size,)
+
+
+def test_found_enclosure_holds_the_root():
+    """Checks that the verified enclosure is finite and contains the root at every sampled point."""
+    lower, upper = jnp.array([-0.5, -0.1]), jnp.array([0.5, 0.1])
+    relaxed = jmk.relax(cubic_root, enclosures=True)
+    _, found = relaxed(jnp.zeros(2), lower, upper, jnp.full(2, jnp.nan))
+    low, high = found[:1], found[1:]
+    rng = np.random.default_rng(0)
+    points = lower + (upper - lower) * rng.uniform(size=(50, 2))
+    roots = np.asarray(jax.vmap(cubic_root)(jnp.asarray(points)))
+    assert np.all(np.isfinite(found))
+    assert np.all(low <= roots + 1e-12) and np.all(roots <= high + 1e-12)
+
+
+def test_unverified_boxes_find_no_enclosure():
+    """Checks that a box too wide for the Krawczyk operator gives NaN and infinite bounds."""
+    lower, upper = jnp.array([-2.0, -0.25]), jnp.array([-2.0, 0.25])
+    relaxation, found = jmk.relax(cubic_root, enclosures=True)(
+        jnp.array([-2.0, 0.0]), lower, upper, jnp.full(2, jnp.nan)
+    )
+    assert np.all(np.isnan(found))
+    assert np.isinf(relaxation.lower) and np.isinf(relaxation.upper)
+
+
+@st.composite
+def nested_boxes(draw):
+    """Draws a box, a box inside it and points inside the inner one."""
+    middle = np.array([draw(coordinates), draw(coordinates)])
+    radius = np.array([draw(st.floats(0.0, 0.15)) for _ in range(2)])
+    lower, upper = np.clip(middle - radius, -2, 2), np.clip(middle + radius, -2, 2)
+    first = np.array([draw(st.floats(0.0, 1.0)) for _ in range(2)])
+    second = np.array([draw(st.floats(0.0, 1.0)) for _ in range(2)])
+    inner_lower = lower + np.minimum(first, second) * (upper - lower)
+    inner_upper = lower + np.maximum(first, second) * (upper - lower)
+    fractions = np.array(
+        [[draw(st.floats(0.0, 1.0)) for _ in range(2)] for _ in range(6)]
+    )
+    points = np.clip(
+        inner_lower + fractions * (inner_upper - inner_lower), inner_lower, inner_upper
+    )
+    arrays = (lower, upper, inner_lower, inner_upper, points)
+    return tuple(array.astype(np.float32) for array in arrays)
+
+
+@settings(max_examples=40, deadline=None)
+@given(sample=nested_boxes())
+def test_enclosure_of_a_larger_box_gives_valid_relaxations(sample):
+    """Checks that relaxations started from the enclosure of an outer box stay valid inside it."""
+    lower, upper, inner_lower, inner_upper, points = sample
+    relaxed = jax.jit(
+        jax.vmap(jmk.relax(cubic_root, enclosures=True), in_axes=(0, None, None, None))
+    )
+    single = jmk.relax(cubic_root, enclosures=True)
+    outer_middle = (lower + upper) / 2
+    _, found = single(outer_middle, lower, upper, jnp.full(2, jnp.nan))
+    relaxation, inner_found = relaxed(points, inner_lower, inner_upper, found)
+    values = np.asarray(jax.vmap(cubic_root)(points))
+    allowed = slack(values, relaxation.lower, relaxation.upper)
+    if np.all(np.isnan(found)):
+        # No enclosure to start from, so the search for one ran and the usual checks apply.
+        return
+    assert np.all(np.isfinite(relaxation.lower)) and np.all(
+        np.isfinite(relaxation.upper)
+    )
+    assert np.all(relaxation.lower <= relaxation.convex + allowed)
+    assert np.all(relaxation.convex <= values + allowed)
+    assert np.all(values <= relaxation.concave + allowed)
+    assert np.all(relaxation.concave <= relaxation.upper + allowed)
+    # The enclosure found for the inner box holds the root at every point of that box.
+    assert np.all(inner_found[0, :1] <= values + allowed)
+    assert np.all(values <= inner_found[0, 1:] + allowed)
+
+
+@pytest.mark.parametrize("mode", ["forward", "reverse"])
+@pytest.mark.parametrize("side", ["convex", "concave"])
+def test_one_sided_functions_with_enclosures(mode, side):
+    """Checks that the one-sided functions with NaN enclosures match the ones without."""
+    make = jmk.convex_side if side == "convex" else jmk.concave_side
+    reference, lower, upper = (
+        jnp.array([0.1, 0.05]),
+        jnp.array([-0.1, -0.1]),
+        jnp.array([0.2, 0.1]),
+    )
+    value, gradient = make(cubic_root, mode)(reference, lower, upper)
+    with_value, with_gradient, found = make(cubic_root, mode, enclosures=True)(
+        reference, lower, upper, jnp.full(2, jnp.nan)
+    )
+    np.testing.assert_array_equal(value, with_value)
+    np.testing.assert_array_equal(gradient, with_gradient)
+    assert np.all(np.isfinite(found))
+    # Started from the enclosure it found, the same call stays valid.
+    again_value, again_gradient, _ = make(cubic_root, mode, enclosures=True)(
+        reference, lower, upper, found
+    )
+    assert np.isfinite(again_value) and np.all(np.isfinite(again_gradient))
+
+
+def test_interval_with_enclosures():
+    """Checks that the interval function with NaN enclosures matches the one without."""
+    lower, upper = jnp.array([-0.1, -0.1]), jnp.array([0.2, 0.1])
+    low, high = jmk.interval(cubic_root)(lower, upper)
+    with_low, with_high, found = jmk.interval(cubic_root, enclosures=True)(
+        lower, upper, jnp.full(2, jnp.nan)
+    )
+    np.testing.assert_array_equal(low, with_low)
+    np.testing.assert_array_equal(high, with_high)
+    assert np.all(np.isfinite(found))
+
+
+def test_enclosure_errors():
+    """Checks the errors for enclosures of the wrong length and for tightened bounds."""
+    reference, lower, upper = jnp.zeros(2), -jnp.ones(2), jnp.ones(2)
+    relaxed = jmk.relax(cubic_root, enclosures=True)
+    with pytest.raises(ValueError, match="too few"):
+        relaxed(reference, lower, upper, jnp.zeros(0))
+    with pytest.raises(ValueError, match="roots take"):
+        relaxed(reference, lower, upper, jnp.full(6, jnp.nan))
+    with pytest.raises(ValueError, match="tighten_bounds"):
+        jmk.relax(cubic_root, tighten_bounds=True, enclosures=True)
+    sideways: Any = "sideways"
+    with pytest.raises(ValueError, match="mode"):
+        jmk.convex_side(cubic_root, sideways, enclosures=True)

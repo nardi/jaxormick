@@ -7,7 +7,9 @@ steps then tighten constant relaxations of the solution, after Stuber, Scott and
 (2015).
 """
 
-from collections.abc import Callable, Sequence
+import contextlib
+import contextvars
+from collections.abc import Callable, Generator, Sequence
 from typing import Any, TypeAlias
 
 import jax
@@ -36,6 +38,103 @@ Residual: TypeAlias = Callable[[Sequence[Array], Array], Array]
 
 Evaluate: TypeAlias = Callable[[ClosedJaxpr, Sequence[Operand]], list[Operand]]
 """Relaxes a jaxpr on a mix of relaxed and plain operands."""
+
+
+class RootTape:
+    """Hands enclosures to the roots of a relaxation and collects the ones they verify.
+
+    An enclosure of a root with `k` entries is a flat array of `2k` numbers, the lower
+    bounds and then the upper bounds. The enclosures of all roots at the top level of the
+    relaxed jaxpr are concatenated in the order of the roots. A tape without enclosures
+    only measures their sizes. NaN or infinite entries mean that there is no enclosure to
+    start from.
+
+    A tape works inside one trace. The transformations that use it return what it collects
+    as an output, since a value that a jitted trace holds cannot leave the trace.
+    """
+
+    def __init__(self, given: Array | None) -> None:
+        self.given = given
+        self.offset = 0
+        self.depth = 0
+        """How many jaxprs the interpreter is inside. The jaxpr being relaxed is 1."""
+        self.sizes: list[int] = []
+        """The number of entries of each root met so far."""
+        self.found: list[Array] = []
+        """The verified enclosures met so far, in the layout of `given`."""
+
+    def take(self, size: int) -> Array | None:
+        """Returns the given enclosure of the next root, or `None` when only measuring."""
+        self.sizes.append(size)
+        if self.given is None:
+            return None
+        piece = self.given[self.offset : self.offset + 2 * size]
+        if piece.shape[0] != 2 * size:
+            raise ValueError(
+                f"The enclosures hold {self.given.shape[0]} numbers, which is too few "
+                f"for a root with {size} entries after {self.offset} numbers."
+            )
+        self.offset += 2 * size
+        return piece
+
+    def total(self) -> int:
+        """Returns the number of numbers that the enclosures of all roots met take."""
+        return 2 * sum(self.sizes)
+
+    def collect(self, dtype: jnp.dtype) -> Array:
+        """Returns the verified enclosures of all roots as one flat array.
+
+        A root that was not verified has NaN. The array is as long as the given one.
+        """
+        if self.given is not None and self.offset != self.given.shape[0]:
+            raise ValueError(
+                f"The enclosures hold {self.given.shape[0]} numbers, but the roots "
+                f"take {self.offset}."
+            )
+        if not self.found:
+            return jnp.zeros(0, dtype)
+        return jnp.concatenate([piece.astype(dtype) for piece in self.found])
+
+
+ACTIVE_TAPE: contextvars.ContextVar[RootTape | None] = contextvars.ContextVar(
+    "jaxormick_root_tape", default=None
+)
+"""The tape of the relaxation being traced, if its roots take enclosures."""
+
+
+@contextlib.contextmanager
+def root_tape(given: Array | None) -> Generator[RootTape]:
+    """Makes a tape the active one while a relaxation is traced."""
+    tape = RootTape(given)
+    token = ACTIVE_TAPE.set(tape)
+    try:
+        yield tape
+    finally:
+        ACTIVE_TAPE.reset(token)
+
+
+@contextlib.contextmanager
+def nested_jaxpr() -> Generator[None]:
+    """Counts the jaxprs the interpreter is inside, so that only the top level has a tape."""
+    tape = ACTIVE_TAPE.get()
+    if tape is None:
+        yield
+        return
+    tape.depth += 1
+    try:
+        yield
+    finally:
+        tape.depth -= 1
+
+
+def top_level_tape() -> RootTape | None:
+    """Returns the active tape if the interpreter is in the jaxpr being relaxed itself.
+
+    Roots inside calls, loops and branches take no enclosures, since their relaxation runs
+    once per iteration or per branch, and a loop cannot hand a value to the trace around it.
+    """
+    tape = ACTIVE_TAPE.get()
+    return tape if tape is not None and tape.depth == 1 else None
 
 
 def is_custom_root(equation: JaxprEqn) -> bool:
@@ -71,13 +170,10 @@ def relax_custom_root(
         )
     subtrees = jax.tree_util.treedef_children(root.in_tree)
     solve_consts, guess, residual_consts, _ = split_operands(inputs, subtrees)
-    middle_solution = root.solve(
-        jax.tree.unflatten(
-            subtrees[0], [middle_value(value) for value in solve_consts]
-        ),
-        jax.tree.unflatten(subtrees[1], [middle_value(value) for value in guess]),
+    middle_guess = jax.tree.unflatten(
+        subtrees[1], [middle_value(value) for value in guess]
     )
-    flat_solution, unravel = ravel_pytree(middle_solution)
+    flat_guess, unravel = ravel_pytree(middle_guess)
 
     def residual(parameters: Sequence[Array], solution: Array) -> Array:
         """Returns the flat residual of the root's equations."""
@@ -85,7 +181,38 @@ def relax_custom_root(
         flat_values, _ = ravel_pytree(values)
         return flat_values
 
-    solution = relax_solution(residual, residual_consts, flat_solution, evaluate)
+    def solve_at_middle() -> Array:
+        """Returns the flat solution at the middle of the box, from the solver."""
+        middle_solution = root.solve(
+            jax.tree.unflatten(
+                subtrees[0], [middle_value(value) for value in solve_consts]
+            ),
+            middle_guess,
+        )
+        return ravel_pytree(middle_solution)[0]
+
+    tape = top_level_tape()
+    given = None if tape is None else tape.take(flat_guess.size)
+    if given is None:
+        solution, found = relax_solution(
+            residual, residual_consts, solve_at_middle(), evaluate
+        )
+    else:
+        given = given.astype(flat_guess.dtype)
+        size = flat_guess.size
+        # An enclosure from a larger box holds the root here, so the solver can be skipped
+        # and the preconditioner built at the middle of the enclosure.
+        has_enclosure = jnp.all(jnp.isfinite(given))
+        start = lax.cond(
+            has_enclosure,
+            lambda: (given[:size] + given[size:]) / 2,
+            solve_at_middle,
+        )
+        solution, found = relax_solution(
+            residual, residual_consts, start, evaluate, enclosure=given
+        )
+    if tape is not None:
+        tape.found.append(found)
     return unravel_relaxation(solution, unravel)
 
 
@@ -124,7 +251,7 @@ def relax_linear_solve(
         targets, _ = ravel_pytree(list(parameters[lengths.matvec :]))
         return products - targets
 
-    solution = relax_solution(
+    solution, _ = relax_solution(
         residual, [*matvec_consts, *right_hand_side], flat_solution, evaluate
     )
     return unravel_relaxation(solution, unravel)
@@ -151,11 +278,19 @@ def relax_solution(
     parameters: Sequence[Operand],
     start: Array,
     evaluate: Evaluate,
-) -> Relaxation:
+    enclosure: Array | None = None,
+) -> tuple[Relaxation, Array]:
     """Relaxes the solution of `residual(parameters, x) = 0` over the box.
 
     `start` approximates the solution at the middle of the parameters. Two Newton steps
-    refine it. The result is infinite where no enclosure is verified.
+    refine it. The relaxation is infinite where no enclosure is verified.
+
+    An `enclosure` is the lower and then the upper bounds of the solution, verified over a
+    box that contains this one. It holds the solution here as well, so it replaces the
+    ε-inflation, and the relaxed Krawczyk steps start from it. Without an enclosure, or
+    with a NaN or infinite one, the inflation runs. The second result is the enclosure
+    that this call verified in the same layout, or NaN where it verified none, which holds
+    for this box and every box inside it.
     """
     middle_parameters = [middle_value(value) for value in parameters]
     jacobian = jax.jacfwd(residual, argnums=1)
@@ -216,12 +351,26 @@ def relax_solution(
             is_verified | is_inside,
         )
 
-    _, _, lower, upper, is_verified = lax.fori_loop(
-        0,
-        INFLATION_STEPS,
-        inflation_step,
-        (solution, solution, solution, solution, jnp.array(False)),
-    )
+    def inflate() -> tuple[Array, Array, Array]:
+        """Searches an enclosure around the solution that the Krawczyk operator maps inside."""
+        _, _, verified_lower, verified_upper, is_verified = lax.fori_loop(
+            0,
+            INFLATION_STEPS,
+            inflation_step,
+            (solution, solution, solution, solution, jnp.array(False)),
+        )
+        return verified_lower, verified_upper, is_verified
+
+    if enclosure is None:
+        lower, upper, is_verified = inflate()
+    else:
+        given = enclosure.astype(solution.dtype)
+        has_enclosure = jnp.all(jnp.isfinite(given))
+        lower, upper, is_verified = lax.cond(
+            has_enclosure,
+            lambda: (given[: solution.size], given[solution.size :], jnp.array(True)),
+            inflate,
+        )
 
     def relaxation_step(_: int, iterate: Relaxation) -> Relaxation:
         """Intersects the relaxation of the solution with its Krawczyk image."""
@@ -231,11 +380,19 @@ def relax_solution(
         0, RELAXATION_STEPS, relaxation_step, constant(lower, upper)
     )
     infinity = jnp.full_like(solution, jnp.inf)
-    return Relaxation(
-        lower=jnp.where(is_verified, relaxation.lower, -infinity),
-        upper=jnp.where(is_verified, relaxation.upper, infinity),
-        convex=jnp.where(is_verified, relaxation.convex, -infinity),
-        concave=jnp.where(is_verified, relaxation.concave, infinity),
+    found = jnp.where(
+        is_verified,
+        jnp.concatenate([relaxation.lower, relaxation.upper]),
+        jnp.nan,
+    )
+    return (
+        Relaxation(
+            lower=jnp.where(is_verified, relaxation.lower, -infinity),
+            upper=jnp.where(is_verified, relaxation.upper, infinity),
+            convex=jnp.where(is_verified, relaxation.convex, -infinity),
+            concave=jnp.where(is_verified, relaxation.concave, infinity),
+        ),
+        found,
     )
 
 

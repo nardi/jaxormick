@@ -14,6 +14,7 @@ from jaxtyping import Array
 from ._errors import UnsupportedPrimitiveError
 from ._implicit import (
     is_custom_root,
+    nested_jaxpr,
     relax_custom_root,
     relax_linear_solve,
     zeros_of,
@@ -72,6 +73,20 @@ def run_jaxpr(
     evaluate: Callable[[JaxprEqn, list[Value]], list[Value]],
 ) -> list[Value]:
     """Evaluates a jaxpr with `evaluate` for each equation and returns its outputs.
+
+    The nesting depth is counted for the tape of the roots, which serves only the first
+    level.
+    """
+    with nested_jaxpr():
+        return run_equations(jaxpr, arguments, evaluate)
+
+
+def run_equations(
+    jaxpr: Jaxpr | ClosedJaxpr,
+    arguments: Sequence[Value],
+    evaluate: Callable[[JaxprEqn, list[Value]], list[Value]],
+) -> list[Value]:
+    """Evaluates the equations of a jaxpr with `evaluate` and returns its outputs.
 
     Equations whose inputs depend on the variables are rewritten first, and equal
     equations run only once. An equation without a rule whose outputs only the solvers

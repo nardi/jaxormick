@@ -21,3 +21,4 @@ from ._transforms import concave_side as concave_side
 from ._transforms import convex_side as convex_side
 from ._transforms import interval as interval
 from ._transforms import relax as relax
+from ._transforms import root_enclosure_size as root_enclosure_size
