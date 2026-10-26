@@ -41,9 +41,14 @@ def cubic_root(x: jax.Array) -> jax.Array:
 def small_boxes_with_points(
     draw: st.DrawFn,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Draws a box of half-width at most 0.25 in the test domain, and points inside it."""
+    """Draws a box of half-width at most 0.15 in the test domain, and points inside it.
+
+    The midpoint preconditioner of the Krawczyk operator verifies a root of the cubic only
+    if the right-hand side has half-width below about `0.22` where the linear coefficient
+    is smallest, so wider boxes can legitimately get infinite bounds.
+    """
     middle = np.array([draw(coordinates), draw(coordinates)])
-    radius = np.array([draw(st.floats(0.0, 0.25)) for _ in range(2)])
+    radius = np.array([draw(st.floats(0.0, 0.15)) for _ in range(2)])
     lower, upper = np.clip(middle - radius, -2, 2), np.clip(middle + radius, -2, 2)
     fractions = np.array(
         [[draw(st.floats(0.0, 1.0)) for _ in range(2)] for _ in range(8)]
