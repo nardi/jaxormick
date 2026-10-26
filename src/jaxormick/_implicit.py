@@ -159,7 +159,7 @@ def relax_solution(
     """
     middle_parameters = [middle_value(value) for value in parameters]
     jacobian = jax.jacfwd(residual, argnums=1)
-    preconditioner = finite_or_zero(jnp.linalg.inv(jacobian(middle_parameters, start)))
+    preconditioner = finite_or_zero(inverse(jacobian(middle_parameters, start)))
     solution = start
     for _ in range(2):
         solution = solution - preconditioner @ residual(middle_parameters, solution)
@@ -237,6 +237,31 @@ def relax_solution(
         convex=jnp.where(is_verified, relaxation.convex, -infinity),
         concave=jnp.where(is_verified, relaxation.concave, infinity),
     )
+
+
+def inverse(matrix: Array) -> Array:
+    """Returns the inverse of a square matrix by Gauss-Jordan elimination with row pivoting.
+
+    `jnp.linalg.inv` factorizes with a LAPACK call that only the jaxlib in the running
+    process provides, so a program that contains it does not compile with a standalone PJRT
+    plugin. This loop uses only core XLA operations. A singular matrix gives non-finite
+    entries, as it does there. The inverse only preconditions the Krawczyk operator, which
+    encloses the root for any preconditioner, so rounding in it never loses validity.
+    """
+    size = matrix.shape[0]
+    rows = jnp.arange(size)
+
+    def eliminate(column: int, augmented: Array) -> Array:
+        """Moves the largest entry of a column onto the diagonal and clears the column."""
+        pivot = jnp.argmax(jnp.where(rows >= column, jnp.abs(augmented[:, column]), -1))
+        top, bottom = augmented[column], augmented[pivot]
+        swapped = augmented.at[column].set(bottom).at[pivot].set(top)
+        row = swapped[column] / swapped[column, column]
+        cleared = swapped - jnp.outer(swapped[:, column], row)
+        return cleared.at[column].set(row)
+
+    augmented = jnp.concatenate([matrix, jnp.eye(size, dtype=matrix.dtype)], axis=1)
+    return lax.fori_loop(0, size, eliminate, augmented)[:, size:]
 
 
 def constant(lower: Array, upper: Array) -> Relaxation:

@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 from jax import lax
 
 import jaxormick as jmk
+from jaxormick import _implicit
 
 
 def linear_system(x: jax.Array) -> jax.Array:
@@ -158,3 +159,31 @@ def test_custom_root_with_auxiliary_output_raises():
 
     with pytest.raises(jmk.UnsupportedPrimitiveError, match="has_aux"):
         jmk.relax(function)(jnp.zeros(2), -jnp.ones(2), jnp.ones(2))
+
+
+@pytest.mark.parametrize("size", [1, 2, 5])
+def test_inverse_matches_the_library(size):
+    """Checks the pivoting inverse against `jnp.linalg.inv`, including a zero on the diagonal."""
+    rng = np.random.default_rng(size)
+    matrix = jnp.asarray(rng.normal(size=(size, size)))
+    if size > 1:
+        matrix = matrix.at[0, 0].set(0.0)
+    np.testing.assert_allclose(
+        _implicit.inverse(matrix),
+        jnp.linalg.inv(matrix),
+        rtol=100 * jnp.finfo(matrix.dtype).eps,
+        atol=100 * jnp.finfo(matrix.dtype).eps,
+    )
+
+
+def test_inverse_of_a_singular_matrix_is_not_finite():
+    """Checks that a singular matrix gives non-finite entries, which the preconditioner zeroes."""
+    inverse = _implicit.inverse(jnp.array([[1.0, 2.0], [2.0, 4.0]]))
+    assert not np.all(np.isfinite(inverse))
+
+
+def test_relaxed_root_lowers_without_library_calls():
+    """Checks that the relaxation of a root needs no LAPACK call, which a PJRT plugin lacks."""
+    relaxed = jax.jit(jmk.relax(cubic_root))
+    text = relaxed.lower(jnp.zeros(2), -jnp.ones(2), jnp.ones(2)).as_text()
+    assert "lapack" not in text
