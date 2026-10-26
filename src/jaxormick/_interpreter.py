@@ -77,10 +77,7 @@ def run_jaxpr(
     equations run only once. An equation without a rule whose outputs only the solvers
     of `custom_linear_solve` use gets zeros instead, such as the LU factors of a matrix.
     """
-    consts: Sequence[Operand] = ()
-    if isinstance(jaxpr, ClosedJaxpr):
-        # From JAX 0.11 on, every jaxpr holds its constants and is its own `jaxpr`.
-        jaxpr, consts = jaxpr.jaxpr, jaxpr.consts
+    consts: Sequence[Operand] = jaxpr.consts
     environment: dict[Var, Value] = {}
 
     def read(atom: Var | Literal) -> Value:
@@ -301,22 +298,10 @@ def eval_equation(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
 
 
 def check_explicit(equation: JaxprEqn) -> None:
-    """Raises for a result that a loop or a solver defines, without a rule to relax it.
-
-    Before JAX 0.11, `lax.custom_root` produces a `custom_jvp_call` whose primal jaxpr
-    only runs the solver. Relaxing that jaxpr would bound the solver's iterates instead
-    of the root, so it is recognized by the function that defines its derivative.
-    """
+    """Raises for a loop of unknown length, which has no rule to relax it."""
     if equation.primitive.name == "while":
         raise UnsupportedPrimitiveError(
             "`while` runs a loop of unknown length, which is not supported."
-        )
-    derivative_rule = equation.params.get("jvp_jaxpr_fun")
-    debug_info = getattr(derivative_rule, "debug_info", None)
-    source = getattr(debug_info, "func_src_info", None) or ""
-    if source.startswith("_root_jvp "):
-        raise UnsupportedPrimitiveError(
-            f"`lax.custom_root` needs `jax>=0.11`, and this is `jax=={jax.__version__}`."
         )
 
 
@@ -428,11 +413,8 @@ def eval_scan(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
 def scan_counts(params: dict[str, Any]) -> tuple[int, int]:
     """Returns the numbers of constants and carries among the operands of a `scan`.
 
-    From JAX 0.11 on, `scan` describes its three groups of operands by flat trees
-    instead of counts.
+    `scan` describes its three groups of operands by flat trees.
     """
-    if "num_consts" in params:
-        return params["num_consts"], params["num_carry"]
     consts, carry, _ = params["ft_in"].unpack()
     return len(list(consts.vals)), len(list(carry.vals))
 

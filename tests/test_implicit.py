@@ -13,13 +13,6 @@ from jax import lax
 
 import jaxormick as jmk
 
-HAS_CUSTOM_ROOT = jax.__version_info__ >= (0, 11)
-"""Whether this JAX exposes the residual of `lax.custom_root` to the interpreter."""
-
-needs_custom_root = pytest.mark.skipif(
-    not HAS_CUSTOM_ROOT, reason="Relaxing `lax.custom_root` needs `jax>=0.11`."
-)
-
 
 def linear_system(x: jax.Array) -> jax.Array:
     """Returns the solution of a diagonally dominant system that depends on `x`."""
@@ -105,7 +98,6 @@ def test_linear_solve_relaxation_is_valid(tighten_bounds, sample):
     check_relaxation("linear_system", tighten_bounds, sample)
 
 
-@needs_custom_root
 @pytest.mark.parametrize("tighten_bounds", [False, True])
 @settings(max_examples=20, deadline=None)
 @given(sample=small_boxes_with_points())
@@ -129,7 +121,6 @@ def test_custom_linear_solve_with_constant_matrix():
     )
 
 
-@needs_custom_root
 def test_custom_root_planes_follow_implicit_derivative():
     """Checks that the planes at the reference have the derivative of the root."""
     reference = jnp.array([0.1, 0.5])
@@ -140,7 +131,6 @@ def test_custom_root_planes_follow_implicit_derivative():
     np.testing.assert_allclose(planes.concave_gradient, gradient, rtol=1e-2)
 
 
-@needs_custom_root
 def test_custom_root_without_enclosure_is_unbounded():
     """Checks that a box too wide for the Krawczyk test gives infinite bounds."""
     reference, lower, upper = (
@@ -153,7 +143,6 @@ def test_custom_root_without_enclosure_is_unbounded():
     assert relaxation.convex == -np.inf and relaxation.concave == np.inf
 
 
-@needs_custom_root
 def test_custom_root_with_auxiliary_output_raises():
     """Checks that `lax.custom_root` with `has_aux=True` raises."""
 
@@ -169,10 +158,3 @@ def test_custom_root_with_auxiliary_output_raises():
 
     with pytest.raises(jmk.UnsupportedPrimitiveError, match="has_aux"):
         jmk.relax(function)(jnp.zeros(2), -jnp.ones(2), jnp.ones(2))
-
-
-@pytest.mark.skipif(HAS_CUSTOM_ROOT, reason="This JAX supports `lax.custom_root`.")
-def test_custom_root_on_old_jax_raises():
-    """Checks that `lax.custom_root` before JAX 0.11 names the version it needs."""
-    with pytest.raises(jmk.UnsupportedPrimitiveError, match=r"jax>=0\.11"):
-        jmk.relax(cubic_root)(jnp.zeros(2), -jnp.ones(2), jnp.ones(2))

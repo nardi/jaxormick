@@ -13,7 +13,7 @@ from typing import Any, TypeAlias
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax._src.lax.control_flow import solves
+from jax._src.lax.control_flow.solves import CustomRoot
 from jax.extend.core import ClosedJaxpr, JaxprEqn, Var, jaxpr_as_fun
 from jax.flatten_util import ravel_pytree
 from jaxtyping import Array
@@ -21,12 +21,6 @@ from jaxtyping import Array
 from ._errors import UnsupportedPrimitiveError
 from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import Operand, as_relaxation
-
-CustomRoot: type | None = getattr(solves, "CustomRoot", None)
-"""The class of the equations of `lax.custom_root`, which JAX 0.11 introduced.
-
-Before JAX 0.11, `lax.custom_root` hides its residual in its derivative rule.
-"""
 
 INFLATION_STEPS = 10
 """The number of ε-inflation steps that try to verify an enclosure of the solution."""
@@ -46,10 +40,8 @@ Evaluate: TypeAlias = Callable[[ClosedJaxpr, Sequence[Operand]], list[Operand]]
 
 def is_custom_root(equation: JaxprEqn) -> bool:
     """Returns whether an equation is a `lax.custom_root` that exposes its residual."""
-    return (
-        CustomRoot is not None
-        and equation.primitive.name == "call_hi_primitive"
-        and isinstance(equation.params["_prim"], CustomRoot)
+    return equation.primitive.name == "call_hi_primitive" and isinstance(
+        equation.params["_prim"], CustomRoot
     )
 
 
