@@ -15,7 +15,6 @@ from typing import Any, TypeAlias
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax._src.lax.control_flow.solves import CustomRoot
 from jax.extend.core import ClosedJaxpr, JaxprEqn, Var, jaxpr_as_fun
 from jax.flatten_util import ravel_pytree
 from jaxtyping import Array
@@ -23,6 +22,12 @@ from jaxtyping import Array
 from ._errors import UnsupportedPrimitiveError
 from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import Operand, as_relaxation
+
+try:
+    from jax._src.lax.control_flow.solves import CustomRoot
+except ImportError:
+    # Before JAX 0.11, `lax.custom_root` has no object that exposes its residual.
+    CustomRoot = None
 
 INFLATION_STEPS = 10
 """The number of ε-inflation steps that try to verify an enclosure of the solution."""
@@ -139,8 +144,10 @@ def top_level_tape() -> RootTape | None:
 
 def is_custom_root(equation: JaxprEqn) -> bool:
     """Returns whether an equation is a `lax.custom_root` that exposes its residual."""
-    return equation.primitive.name == "call_hi_primitive" and isinstance(
-        equation.params["_prim"], CustomRoot
+    return (
+        CustomRoot is not None
+        and equation.primitive.name == "call_hi_primitive"
+        and isinstance(equation.params["_prim"], CustomRoot)
     )
 
 

@@ -4,9 +4,9 @@ version = "0.0.1"
 description = "McCormick relaxations of JAX functions"
 readme = "README.md"
 authors = [{ name = "Nardi Lam", email = "mail@nardilam.nl" }]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
-    "jax>=0.11,<0.12",
+    "jax>=0.10,<0.12",
     "equinox>=0.11",
     "jaxtyping>=0.2",
 ]
@@ -19,14 +19,15 @@ build-backend = "uv_build"
 dev = [
     "hypothesis>=6",
     "markdown-pytest>=0.6.6",
-    "mkdocs-material>=9.7.6",
-    "mkdocstrings[python]>=0.27",
     "pytest>=9.1.0",
     "pytest-benchmark>=5",
     "pytest-cov>=7",
     "ruff>=0.15.17",
     "ty>=0.0.59",
 ]
+
+# The documentation site. The API reference reads the source, so it needs no build.
+docs = ["zensical>=0.0.73", "mkdocstrings-python>=2"]
 
 [tool.pytest.ini_options]
 # The markdown docs and the README are collected by markdown-pytest, which runs code

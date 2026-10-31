@@ -33,6 +33,9 @@ functions](theory/implicit.md).
 pip install jaxormick
 ```
 
+JAXormick needs Python 3.11 or newer and works with JAX 0.10 and 0.11. Before JAX 0.11,
+`lax.custom_root` is not supported, as [supported operations](guide/supported.md) lists.
+
 ## Quick example
 
 The example bounds \(f(x) = x_1 e^{x_2} - x_2^2\) on the box \([0, 1] \times [-1, 1]\).
