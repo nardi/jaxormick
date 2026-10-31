@@ -15,6 +15,12 @@ from jax import lax
 import jaxormick as jmk
 from jaxormick import _implicit
 
+needs_exposed_root = pytest.mark.skipif(
+    jax.__version_info__ < (0, 11),
+    reason="needs jax>=0.11, where the residual is visible",
+)
+"""Marks tests of roots, which JAX hides from the interpreter before version 0.11."""
+
 
 def linear_system(x: jax.Array) -> jax.Array:
     """Returns the solution of a diagonally dominant system that depends on `x`."""
@@ -105,6 +111,7 @@ def test_linear_solve_relaxation_is_valid(tighten_bounds, sample):
     check_relaxation("linear_system", tighten_bounds, sample)
 
 
+@needs_exposed_root
 @pytest.mark.parametrize("tighten_bounds", [False, True])
 @settings(max_examples=20, deadline=None)
 @given(sample=small_boxes_with_points())
@@ -128,6 +135,7 @@ def test_custom_linear_solve_with_constant_matrix():
     )
 
 
+@needs_exposed_root
 def test_custom_root_planes_follow_implicit_derivative():
     """Checks that the planes at the reference have the derivative of the root."""
     reference = jnp.array([0.1, 0.5])
@@ -138,6 +146,7 @@ def test_custom_root_planes_follow_implicit_derivative():
     np.testing.assert_allclose(planes.concave_gradient, gradient, rtol=1e-2)
 
 
+@needs_exposed_root
 def test_custom_root_without_enclosure_is_unbounded():
     """Checks that a box too wide for the Krawczyk test gives infinite bounds."""
     reference, lower, upper = (
@@ -150,6 +159,7 @@ def test_custom_root_without_enclosure_is_unbounded():
     assert relaxation.convex == -np.inf and relaxation.concave == np.inf
 
 
+@needs_exposed_root
 def test_custom_root_with_auxiliary_output_raises():
     """Checks that `lax.custom_root` with `has_aux=True` raises."""
 
@@ -188,6 +198,7 @@ def test_inverse_of_a_singular_matrix_is_not_finite():
     assert not np.all(np.isfinite(inverse))
 
 
+@needs_exposed_root
 def test_relaxed_root_lowers_without_library_calls():
     """Checks that the relaxation of a root needs no LAPACK call, which a PJRT plugin lacks."""
     relaxed = jax.jit(jmk.relax(cubic_root))
@@ -220,11 +231,13 @@ def box_bounds(size: int = 2):
         (lambda x: jnp.sin(x), 0),
     ],
 )
+@needs_exposed_root
 def test_root_enclosure_size(function, size):
     """Checks that only the roots at the top level count, with two numbers per entry."""
     assert jmk.root_enclosure_size(function, *box_bounds()) == size
 
 
+@needs_exposed_root
 def test_size_query_accepts_shape_structs():
     """Checks that the size can be asked with shapes instead of arrays."""
     shape = jax.ShapeDtypeStruct((2,), jnp.float32)
@@ -234,6 +247,7 @@ def test_size_query_accepts_shape_structs():
 @pytest.mark.parametrize(
     "function", [cubic_root, two_roots, roots_in_calls, linear_system]
 )
+@needs_exposed_root
 def test_missing_enclosures_change_nothing(function):
     """Checks that NaN enclosures give the relaxation that `relax` gives without them."""
     reference, lower, upper = (
@@ -253,6 +267,7 @@ def test_missing_enclosures_change_nothing(function):
     assert found.shape == (size,)
 
 
+@needs_exposed_root
 def test_found_enclosure_holds_the_root():
     """Checks that the verified enclosure is finite and contains the root at every sampled point."""
     lower, upper = jnp.array([-0.5, -0.1]), jnp.array([0.5, 0.1])
@@ -266,6 +281,7 @@ def test_found_enclosure_holds_the_root():
     assert np.all(low <= roots + 1e-12) and np.all(roots <= high + 1e-12)
 
 
+@needs_exposed_root
 def test_unverified_boxes_find_no_enclosure():
     """Checks that a box too wide for the Krawczyk operator gives NaN and infinite bounds."""
     lower, upper = jnp.array([-2.0, -0.25]), jnp.array([-2.0, 0.25])
@@ -296,6 +312,7 @@ def nested_boxes(draw):
     return tuple(array.astype(np.float32) for array in arrays)
 
 
+@needs_exposed_root
 @settings(max_examples=40, deadline=None)
 @given(sample=nested_boxes())
 def test_enclosure_of_a_larger_box_gives_valid_relaxations(sample):
@@ -325,6 +342,7 @@ def test_enclosure_of_a_larger_box_gives_valid_relaxations(sample):
     assert np.all(values <= inner_found[0, 1:] + allowed)
 
 
+@needs_exposed_root
 @pytest.mark.parametrize("mode", ["forward", "reverse"])
 @pytest.mark.parametrize("side", ["convex", "concave"])
 def test_one_sided_functions_with_enclosures(mode, side):
@@ -349,6 +367,7 @@ def test_one_sided_functions_with_enclosures(mode, side):
     assert np.isfinite(again_value) and np.all(np.isfinite(again_gradient))
 
 
+@needs_exposed_root
 def test_interval_with_enclosures():
     """Checks that the interval function with NaN enclosures matches the one without."""
     lower, upper = jnp.array([-0.1, -0.1]), jnp.array([0.2, 0.1])
@@ -361,6 +380,7 @@ def test_interval_with_enclosures():
     assert np.all(np.isfinite(found))
 
 
+@needs_exposed_root
 def test_enclosure_errors():
     """Checks the errors for enclosures of the wrong length and for tightened bounds."""
     reference, lower, upper = jnp.zeros(2), -jnp.ones(2), jnp.ones(2)
@@ -374,3 +394,12 @@ def test_enclosure_errors():
     sideways: Any = "sideways"
     with pytest.raises(ValueError, match="mode"):
         jmk.convex_side(cubic_root, sideways, enclosures=True)
+
+
+@pytest.mark.skipif(
+    jax.__version_info__ >= (0, 11), reason="JAX 0.11 exposes the residual of roots"
+)
+def test_custom_root_before_jax_011_raises():
+    """Checks that `lax.custom_root` raises where JAX hides its residual."""
+    with pytest.raises(jmk.UnsupportedPrimitiveError, match="custom_root"):
+        jmk.relax(cubic_root)(jnp.zeros(2), -jnp.ones(2), jnp.ones(2))

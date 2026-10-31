@@ -15,7 +15,7 @@ from typing import Any, TypeAlias
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax._src.lax.control_flow.solves import CustomRoot
+from jax._src.lax.control_flow import solves
 from jax.extend.core import ClosedJaxpr, JaxprEqn, Var, jaxpr_as_fun
 from jax.flatten_util import ravel_pytree
 from jaxtyping import Array
@@ -23,6 +23,9 @@ from jaxtyping import Array
 from ._errors import UnsupportedPrimitiveError
 from ._relaxation import Relaxation, intersect_relaxations
 from ._rules import Operand, as_relaxation
+
+CustomRoot: type | None = getattr(solves, "CustomRoot", None)
+"""The object of a `lax.custom_root` that exposes its residual, from JAX 0.11 on."""
 
 INFLATION_STEPS = 10
 """The number of ε-inflation steps that try to verify an enclosure of the solution."""
@@ -139,8 +142,26 @@ def top_level_tape() -> RootTape | None:
 
 def is_custom_root(equation: JaxprEqn) -> bool:
     """Returns whether an equation is a `lax.custom_root` that exposes its residual."""
-    return equation.primitive.name == "call_hi_primitive" and isinstance(
-        equation.params["_prim"], CustomRoot
+    return (
+        CustomRoot is not None
+        and equation.primitive.name == "call_hi_primitive"
+        and isinstance(equation.params["_prim"], CustomRoot)
+    )
+
+
+def is_hidden_custom_root(equation: JaxprEqn) -> bool:
+    """Returns whether an equation is a `lax.custom_root` that hides its residual.
+
+    Before JAX 0.11, a root traces to a `custom_jvp_call` of the function `_custom_root`.
+    Only its derivative rule holds the residual, so the equation cannot be relaxed.
+    """
+    if equation.primitive.name != "custom_jvp_call":
+        return False
+    debug_info = equation.params["call_jaxpr"].jaxpr.debug_info
+    return (
+        debug_info is not None
+        and debug_info.func_name == "_custom_root"
+        and "control_flow/solves.py" in debug_info.func_src_info
     )
 
 

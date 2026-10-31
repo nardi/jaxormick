@@ -14,6 +14,7 @@ from jaxtyping import Array
 from ._errors import UnsupportedPrimitiveError
 from ._implicit import (
     is_custom_root,
+    is_hidden_custom_root,
     nested_jaxpr,
     relax_custom_root,
     relax_linear_solve,
@@ -92,7 +93,8 @@ def run_equations(
     equations run only once. An equation without a rule whose outputs only the solvers
     of `custom_linear_solve` use gets zeros instead, such as the LU factors of a matrix.
     """
-    consts: Sequence[Operand] = jaxpr.consts
+    # Before JAX 0.11, only a closed jaxpr holds constants, and an open one has none.
+    consts: Sequence[Operand] = getattr(jaxpr, "consts", ())
     environment: dict[Var, Value] = {}
 
     def read(atom: Var | Literal) -> Value:
@@ -126,7 +128,7 @@ def run_equations(
     return [read(atom) for atom in jaxpr.outvars]
 
 
-def solver_variables(jaxpr: Jaxpr) -> set[Var]:
+def solver_variables(jaxpr: Jaxpr | ClosedJaxpr) -> set[Var]:
     """Returns the variables that only the solvers of `custom_linear_solve` use.
 
     The rule of `custom_linear_solve` does not read the constants of its solvers, such
@@ -292,6 +294,10 @@ def eval_equation(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
             outputs = relax_linear_solve(equation, inputs, eval_jaxpr)
         case "call_hi_primitive" if is_custom_root(equation):
             outputs = relax_custom_root(equation, inputs, eval_jaxpr)
+        case "custom_jvp_call" if is_hidden_custom_root(equation):
+            raise UnsupportedPrimitiveError(
+                "`lax.custom_root` is only supported from JAX 0.11 on."
+            )
         case "scan":
             outputs = eval_scan(equation, inputs)
         case "cond":
@@ -428,10 +434,16 @@ def eval_scan(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
 def scan_counts(params: dict[str, Any]) -> tuple[int, int]:
     """Returns the numbers of constants and carries among the operands of a `scan`.
 
-    `scan` describes its three groups of operands by flat trees.
+    From JAX 0.11 on, `scan` describes its three groups of operands by flat trees. Before,
+    it holds their counts.
     """
-    consts, carry, _ = params["ft_in"].unpack()
-    return len(list(consts.vals)), len(list(carry.vals))
+    match params:
+        case {"ft_in": flat_trees}:
+            consts, carry, _ = flat_trees.unpack()
+            return len(list(consts.vals)), len(list(carry.vals))
+        case {"num_consts": consts_count, "num_carry": carry_count}:
+            return consts_count, carry_count
+    raise AssertionError("A `scan` has no description of its operands.")
 
 
 def eval_cond(equation: JaxprEqn, inputs: list[Operand]) -> list[Operand]:
