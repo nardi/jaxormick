@@ -14,6 +14,9 @@ differentiate with `jax.grad`.
 pip install jaxormick
 ```
 
+JAXormick needs Python 3.11 or newer and works with JAX 0.10 and 0.11. Before JAX 0.11,
+`lax.custom_root` is not supported, as [supported operations](https://nardi.github.io/jaxormick/guide/supported/) lists.
+
 ## Example
 
 <!-- name: test_readme -->

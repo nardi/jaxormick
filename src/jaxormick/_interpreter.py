@@ -92,7 +92,8 @@ def run_equations(
     equations run only once. An equation without a rule whose outputs only the solvers
     of `custom_linear_solve` use gets zeros instead, such as the LU factors of a matrix.
     """
-    consts: Sequence[Operand] = jaxpr.consts
+    # Before JAX 0.11, only a closed jaxpr holds constants, and an open one has none.
+    consts: Sequence[Operand] = getattr(jaxpr, "consts", ())
     environment: dict[Var, Value] = {}
 
     def read(atom: Var | Literal) -> Value:
