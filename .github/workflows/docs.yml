@@ -6,7 +6,6 @@ on:
     paths:
       - "docs/**"
       - "src/**"
-      - "theme"
       - "zensical.toml"
       - "pyproject.toml"
       - ".github/workflows/docs.yml"
@@ -21,10 +20,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # The documentation site uses the Tufte theme as a submodule.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
