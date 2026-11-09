@@ -32,8 +32,7 @@ McCormick's method keeps four numbers for each factor \(v\) over the box \(X\):
 Each variable starts with an exact relaxation, \(x_i^{cv} = x_i^{cc} = x_i\). A rule for
 each operation then computes the four numbers of its result from those of its operands.
 The intervals follow from [interval arithmetic](relaxations.md#interval-bounds). The
-sections below give the rules for the convex and concave sides, and a [worked
-example](#a-worked-example) applies them to \(f\).
+sections below give the rules for the convex and concave sides.
 
 ## Sums and constant factors
 
@@ -68,20 +67,10 @@ interval.
   \(t\). For odd powers \(u^{2k+1}\), \(t\) is a fixed multiple of \(u^L\) ([Liberti and
   Pantelides, 2003](https://doi.org/10.1023/A:1021924706467)). Other functions find
   \(t\) by bisection.
-- When \(F\) is concave left of an inflection point and convex right of it, as
-  \(\sinh u\) and \(\arcsin u\) are, \(-F\) is convex-concave. The envelopes of \(F\)
-  are the negated envelopes of \(-F\).
-- When \(F\) is defined on an open interval, as \(\operatorname{artanh} u\) is on
-  \((-1, 1)\), the composition rule applies to intervals inside the domain. An interval
-  that reaches the edge only gets the bounds of \(F\) over the part inside the domain,
-  which are infinite where \(F\) is.
-- \(\tan\) has a branch \((k\pi - \pi/2, k\pi + \pi/2)\) for every integer \(k\), and is
-  concave-convex on each. Since \(\tan(u - k\pi) = \tan u\), shifting the interval by
-  \(k\pi\) moves it to the branch around zero. An interval that contains a pole gets
-  infinite bounds.
-- \(\sin\) and \(\cos\) switch between convex and concave pieces every half period.
-  Their envelopes combine the convex-concave case with the minima and maxima inside the
-  interval ([Mitsos, Chachuat and Barton, 2009](https://doi.org/10.1137/080717341)).
+- Other shapes combine these cases. Functions such as \(\sinh u\) are concave-convex,
+  \(\tan\) is concave-convex on each branch, and \(\sin\) and \(\cos\) switch
+  between convex and concave pieces every half period. [Mitsos, Chachuat and Barton
+  (2009)](https://doi.org/10.1137/080717341) give the envelopes of these functions.
 
 ### The composition rule
 
@@ -155,35 +144,6 @@ this until one factor is left. That takes \(\lceil \log_2 n \rceil\) rounds for 
 factors. The maximum of many terms, as `jnp.max` computes, combines pairs the same way
 with the rule for \(\max(a, b)\).
 
-## A worked example
-
-Take \(f(x) = x_1 e^{x_2} - x_2^2\) on \(X = [0, 1] \times [-1, 1]\) at the reference
-point \(x = (0.5, 0)\). The table applies the rules to the factors in order.
-
-| Factor | Interval | Convex | Concave |
-| --- | --- | --- | --- |
-| \(x_1\) | \([0, 1]\) | \(0.5\) | \(0.5\) |
-| \(x_2\) | \([-1, 1]\) | \(0\) | \(0\) |
-| \(v_1 = e^{x_2}\) | \([0.368, 2.718]\) | \(e^0 = 1\) | secant at \(0\), \(1.543\) |
-| \(v_2 = x_1 v_1\) | \([0, 2.718]\) | \(0.184\) | \(1.359\) |
-| \(v_3 = x_2^2\) | \([0, 1]\) | \(0\) | secant at \(0\), \(1\) |
-| \(f = v_2 - v_3\) | \([-1, 2.718]\) | \(0.184 - 1 = -0.816\) | \(1.359 - 0 = 1.359\) |
-
-The rows follow from the rules above.
-
-- \(v_1\) uses the composition rule with \(F = e^u\). Both relaxations of \(x_2\) are
-  \(0\), so the median is \(0\) on both sides. The convex side is \(e^0\), and the
-  concave side is the secant from \((-1, e^{-1})\) to \((1, e)\) at \(0\).
-- \(v_2\) uses the product rule with \(u = x_1\) and \(w = v_1\). The convex side takes
-  the larger of the two product bounds, \(w^L u^{cv} + 0 = 0.368 \cdot 0.5\) and
-  \(w^U u^{cv} + u^U w^{cv} - u^U w^U = 2.718 \cdot 0.5 + 1 - 2.718\).
-- \(v_3\) uses the composition rule with \(F = u^2\). The convex side is \(0^2\), and
-  the concave side is the secant of \(u^2\) on \([-1, 1]\), which is the constant \(1\).
-- \(f\) uses the rule for subtraction, \(v_2^{cv} - v_3^{cc}\) and
-  \(v_2^{cc} - v_3^{cv}\).
-
-The function value at the reference point is \(0.5\), and \(-0.816 \le 0.5 \le 1.359\).
-
 ## Subgradients
 
 An affine relaxation needs a subgradient of \(f^{cv}\) at the reference point. [Mitsos,
@@ -228,21 +188,11 @@ For example, \(f(x) = -x^2\) on \([-1, 1]\) has the Hessian \(-2\). The shift
 \(\alpha = 1\) adds \(2\) to it, and \(f^{cv}(x) = -x^2 + (x + 1)(x - 1) = -1\), which
 is the convex envelope of \(-x^2\) on this interval.
 
-`jaxormick` bounds the Hessian over the box by applying `interval` to `jax.hessian(f)`.
-The result is an interval matrix \([H^L, H^U]\) that contains the Hessian at every point
-of the box. The scaled Gershgorin theorem gives shifts that make every matrix in it
-positive semidefinite. With the widths \(d_i = x_i^U - x_i^L\), the shift of variable
-\(i\) is
-
-\[
-\alpha_i = \max\Bigl(0,\ -\frac{1}{2}\Bigl(H_{ii}^L - \sum_{j \ne i}
-\max\bigl(\lvert H_{ij}^L \rvert, \lvert H_{ij}^U \rvert\bigr)
-\frac{d_j}{d_i}\Bigr)\Bigr).
-\]
-
-The concave overestimator applies the same construction to \(-f\). If every shift is
-zero, the interval Hessian proves \(f\) convex on the box, and the convex side is \(f\)
-itself.
+`jaxormick` bounds the Hessian over the box by applying `interval` to `jax.hessian(f)`,
+and computes shifts \(\alpha_i\) that make every matrix within these bounds positive
+semidefinite with the scaled Gershgorin theorem ([Adjiman et al.,
+1998](https://doi.org/10.1016/S0098-1354(98)00027-1)). The concave overestimator applies
+the same construction to \(-f\).
 
 `jaxormick` intersects the αBB relaxation with the McCormick relaxation, so the result
 is at least as tight as either. Neither is tighter in general. The quadratic term
@@ -256,17 +206,9 @@ The interval of a factor can be much wider than its range. For \(v = x - x^2\) o
 \([0, 2]\), the rules give \([-4, 2]\), while the range is \([-2, 0.25]\). [Najman and
 Mitsos (2019)](https://doi.org/10.1007/s10898-019-00791-0) narrow such intervals with
 the relaxations themselves. A convex underestimator lies above each of its tangent
-planes. The lowest point of such a plane over the box is therefore a lower bound of the
-factor.
-
-\[
-v^L \leftarrow \max\Bigl(v^L,\ v^{cv}(\bar x) + \sum_i \min\bigl(s_i (x_i^L - \bar x_i),
-\ s_i (x_i^U - \bar x_i)\bigr)\Bigr)
-\]
-
-Here \(s\) is a subgradient of \(v^{cv}\) at a point \(\bar x\) of the box. The concave
-side gives an upper bound in the same way. The narrower interval then tightens the
-relaxations of every factor that depends on \(v\).
+planes, so the lowest point of such a plane over the box is a lower bound of the factor.
+The concave side gives an upper bound in the same way. The narrower interval then
+tightens the relaxations of every factor that depends on \(v\).
 
 The bounds must not depend on the reference point, or the relaxations would stop being
 convex. `jaxormick` therefore takes the subgradients at the middle of the box, from a
@@ -278,8 +220,9 @@ the concave side is \(v\) itself. Their tangent planes at \(\bar x = 1\) give
 
 McCormick relaxations extend in several directions that `jaxormick` does not implement
 yet. [Scott, Stuber and Barton (2011)](https://doi.org/10.1007/s10898-011-9664-7)
-generalized them to solutions of differential equations. Solutions of equations are the
-topic of the [next page](implicit.md). [Tsoukalas and Mitsos
+generalized them, and their generalized relaxations are the basis of relaxations of
+solutions of equations, the topic of the [next page](implicit.md), and of differential
+equations. [Tsoukalas and Mitsos
 (2014)](https://doi.org/10.1007/s10898-014-0176-0) gave a composition rule for functions
 of several arguments, which tightens products and divisions.
 

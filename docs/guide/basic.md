@@ -32,8 +32,8 @@ assert f(reference) <= relaxation.concave <= relaxation.upper
 print(relaxation.convex, relaxation.concave)
 ```
 
-This prints `-0.8160603 1.3591409`, the values of the [worked
-example](../theory/mccormick.md#a-worked-example).
+This prints `-0.8160603 1.3591409`. The [McCormick
+relaxations](../theory/mccormick.md) page describes the rules that compute these values.
 
 The bounds hold for every point of the box. The convex and concave values describe the
 relaxations at the reference point only. To see the relaxations as functions, evaluate

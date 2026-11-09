@@ -59,23 +59,6 @@ equation with such an operand, the interpreter calls the rule of its primitive. 
 that do not depend on the variables, such as constants and parameters, remain ordinary
 arrays, and JAX evaluates the equations on them as usual.
 
-### The example step by step
-
-For the jaxpr above, the interpreter starts with `a` as a `Relaxation` of the box, whose
-convex and concave values are the reference point.
-
-1. `slice` and `squeeze` select one entry of each of the four arrays. They give the rows
-   \(x_1\) and \(x_2\) of the [worked example](mccormick.md#a-worked-example) as `c` and
-   `e`.
-2. The rule of `exp` applies the composition rule to `e` and gives `f`, the row \(v_1\).
-3. The rule of `mul` applies the product rule to `c` and `f` and gives `g`, the row
-   \(v_2\).
-4. The rule of `integer_pow` relaxes the square of `i` and gives `j`, the row \(v_3\).
-   The slice `h` repeats `d`, so the interpreter merges them, as the next section
-   describes, and `i` is the same variable as `e`.
-5. The rule of `sub` subtracts the sides of `j` from those of `g` and gives `k`, the
-   relaxation of \(f\).
-
 ### Merged equations and rewritten powers
 
 JAX does not merge repeated equations, so `x[0] * x[0]` slices `x` twice and multiplies
@@ -98,9 +81,7 @@ Every JAX transformation applies to it.
 
 The function to relax can itself come from a JAX transformation. `jax.hessian(f)` is a
 JAX function, so `interval` bounds the Hessian of `f` over a box. The αBB relaxation of
-`relax(f, alpha_bb=True)` uses these bounds. Hessians often contain `split`, which has a
-rule for that reason. In JAX 0.11, the derivative of `tanh` contains `one_minus_square`,
-which has a rule too.
+`relax(f, alpha_bb=True)` uses these bounds.
 
 ### Tightened bounds by forward-mode differentiation
 
@@ -153,16 +134,11 @@ explicit choice of one branch.
 ### Maxima at near ties
 
 The product rule and the clipping of relaxations to their bounds take maxima and minima
-of relaxations too. These ties are harmless in exact arithmetic, since an average of
-subgradients of the active pieces is a subgradient of their maximum. In floating point
-they are not. XLA may evaluate the comparison that decides a tie in several fused
-kernels, each with its own rounding. The gradient contributions of these kernels can
-then assume different active pieces, and their sum is no subgradient. `jaxormick`
-therefore keeps one fixed argument unless the other is larger by more than a few ulps,
-so that rounding cannot flip the choice. The result may fall short of the maximum by
-these few ulps, which only loosens it. When a relaxation is clipped to its bound, the
-bound is chosen at such a near tie, since a constant is a valid plane even where
-rounding pushed the relaxation past it.
+of relaxations too. In exact arithmetic, a tie there is harmless. In floating point, XLA
+may round the comparison differently in different fused kernels, and the gradient then
+mixes pieces in a way that is not a subgradient. `jaxormick` therefore keeps one fixed
+argument unless the other is larger by more than a few ulps. The result may fall short
+of the maximum by these few ulps, which only loosens it.
 
 ### `NaN` in unused branches
 
