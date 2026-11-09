@@ -32,8 +32,8 @@ assert f(reference) <= relaxation.concave <= relaxation.upper
 print(relaxation.convex, relaxation.concave)
 ```
 
-This prints `-0.8160603 1.3591409`, the values of the [worked
-example](../theory/mccormick.md#a-worked-example).
+This prints `-0.8160603 1.3591409`. The [McCormick
+relaxations](../theory/mccormick.md) page describes the rules that compute these values.
 
 The bounds hold for every point of the box. The convex and concave values describe the
 relaxations at the reference point only. To see the relaxations as functions, evaluate
@@ -50,7 +50,7 @@ assert jnp.all(relaxations.convex <= jax.vmap(f)(points))
 
 ## Interval bounds alone
 
-When only the bounds matter, `jaxormick.interval` skips the reference point. It returns
+When only the bounds matter, `jaxormick.interval` takes no reference point. It returns
 the lower and upper bounds of the output over the box.
 
 <!-- name: test_basic -->
@@ -65,9 +65,9 @@ them, so XLA removes them from the compiled program.
 ## Function forms for tight relaxations
 
 The relaxation depends on how the function is written, not only on its values. Each rule
-sees only its own operands, so it relaxes a variable that occurs twice as if the two
-occurrences could differ. The interpreter handles the simplest case itself. It relaxes
-`x * x` as `x ** 2`, and `x * x * x` as `x ** 3`.
+receives only its own operands, so it relaxes a variable that occurs twice as if the two
+occurrences could differ. The interpreter rewrites the simplest case before relaxing it.
+It relaxes `x * x` as `x ** 2`, and `x * x * x` as `x ** 3`.
 
 <!-- name: test_basic -->
 ```python
@@ -79,8 +79,8 @@ assert product.lower == power.lower == 0.0
 
 Other forms need rewriting by hand:
 
-- Keep the factors of a power next to each other. `x * x * 2` becomes a power, but
-  `2 * x * x` multiplies `2 * x` by `x`, and the product rule relaxes that.
+- Keep the factors of a power next to each other. `x * x * 2` is rewritten as a power,
+  but `2 * x * x` multiplies `2 * x` by `x`, and the product rule relaxes that.
 - Collect occurrences of a variable. `x * (1 - x)` relaxes worse than
   `0.25 - (x - 0.5) ** 2`.
 - Use `jnp.tanh`, `jax.nn.sigmoid` and `jnp.log1p` directly instead of building them
@@ -115,7 +115,8 @@ and later calls with the same shapes and dtypes reuse the program. See
 
 An operation without a relaxation rule raises `jaxormick.UnsupportedPrimitiveError` when
 JAX traces the relaxed function. The message names the primitive. Comparisons of values
-that depend on the variables are one example, since their results jump.
+that depend on the variables are one example, since their results are discontinuous in
+the variables.
 
 <!-- name: test_basic -->
 ```python
@@ -128,4 +129,4 @@ with pytest.raises(jmk.UnsupportedPrimitiveError, match="gt"):
 ```
 
 `jax.nn.relu(x)` and `jnp.maximum(x, 0)` have rules. The list of [supported
-operations](supported.md) has the rest.
+operations](supported.md) contains the others.

@@ -5,8 +5,8 @@ McCormick relaxations of [JAX](https://docs.jax.dev/en/latest/) functions.
 `jaxormick` turns a JAX function into functions that compute, over a box of inputs,
 bounds on its values and convex and concave relaxations with their subgradients. Global
 optimization solvers use these as lower bounds and linear cuts. The relaxations are JAX
-functions, so they compile with `jax.jit`, batch over boxes with `jax.vmap` and
-differentiate with `jax.grad`.
+functions, so they can be compiled with `jax.jit`, batched over boxes with `jax.vmap`
+and differentiated with `jax.grad`.
 
 ## Installation
 
@@ -15,7 +15,8 @@ pip install jaxormick
 ```
 
 JAXormick needs Python 3.11 or newer and works with JAX 0.10 and 0.11. Before JAX 0.11,
-`lax.custom_root` is not supported, as [supported operations](https://nardi.github.io/jaxormick/guide/supported/) lists.
+`lax.custom_root` is not supported. See [supported
+operations](https://nardi.github.io/jaxormick/guide/supported/).
 
 ## Example
 
@@ -42,9 +43,9 @@ planes = jmk.affine_relaxation(f)(reference, lower, upper)
 print(planes.convex, planes.convex_gradient)
 ```
 
-`relaxation.lower` and `relaxation.upper` bound `f` on the whole box. `planes` holds
-tangent planes of the convex and concave relaxations at the reference point, which bound
-`f` from below and above on the box.
+`relaxation.lower` and `relaxation.upper` bound `f` on the whole box. `planes` contains
+the values and gradients of the convex and concave relaxations at the reference point.
+They define tangent planes that bound `f` from below and above on the box.
 
 ## Documentation
 

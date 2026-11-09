@@ -48,11 +48,12 @@ assert jnp.all(values <= jax.vmap(above)(points))
 
 ## A lower bound from one plane
 
-The smallest value of an affine function on a box sits at a corner, chosen per
-coordinate by the sign of the gradient. The value at that corner is a lower bound, often
-tighter than the interval bound, at the cost of one gradient. For \(g(x) = x^2 - x\) on
-\([0, 1]\), interval arithmetic computes \([0, 1] - [0, 1] = [-1, 1]\), while one plane
-at the center finds the true minimum \(-0.25\).
+The smallest value of an affine function on a box is at a corner, chosen per coordinate
+by the sign of the gradient. The value at that corner is a lower bound. It is often
+tighter than the interval bound and needs one gradient on top of the relaxation. For
+\(g(x) = x^2 - x\) on \([0, 1]\), interval arithmetic computes
+\([0, 1] - [0, 1] = [-1, 1]\), while one plane at the center finds the true minimum
+\(-0.25\).
 
 <!-- name: test_affine -->
 ```python
@@ -93,10 +94,10 @@ assert jnp.allclose(gradient, planes.convex_gradient)
 ## Forward and reverse mode
 
 The gradients come from automatic differentiation. Forward mode is the default. It
-pushes one tangent vector per variable through the relaxation and stores nothing for a
-backward pass, which keeps the compiled program small. Reverse mode costs one backward
-pass per output and is cheaper for functions with many variables, roughly from a few
-dozen on.
+propagates one tangent vector per variable through the relaxation and stores no
+intermediate values for a backward pass, which keeps the compiled program small. Reverse
+mode costs one backward pass per output and is cheaper for functions with many
+variables, roughly from a few dozen on.
 
 <!-- name: test_affine -->
 ```python
@@ -113,7 +114,8 @@ The relaxations are not differentiable everywhere, and the planes are only valid
 gradient is a true subgradient of the convex side. Where the convex and concave sides of
 an intermediate value tie, which happens often on the boundary of the box, the rules
 choose one side explicitly instead of letting automatic differentiation average them.
-Planes at boundary points, where linear programs put their solutions, stay valid.
+Planes at boundary points, where linear programs attain their optima, are therefore
+valid.
 
 <!-- name: test_affine -->
 ```python
@@ -122,6 +124,5 @@ corner_values = corner.convex + (points - upper) @ corner.convex_gradient
 assert jnp.all(corner_values <= values)
 ```
 
-The relaxed function needs a single output array for these transformations. For several
-outputs, call them once per output, or use `jax.jacfwd` on the fields of `relax`
-directly.
+These transformations need a function with a single output array. For several outputs,
+call them once per output, or use `jax.jacfwd` on the fields of `relax` directly.

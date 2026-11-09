@@ -2,9 +2,9 @@
 
 ## Rules and primitives
 
-JAX functions break down into primitives such as `exp`, `mul` or `reduce_sum`. A
-relaxation rule computes the `Relaxation` of one primitive's output from the relaxations
-of its inputs. To find the primitive behind a function, print its jaxpr.
+JAX functions consist of primitives such as `exp`, `mul` or `reduce_sum`. A relaxation
+rule computes the `Relaxation` of one primitive's output from the relaxations of its
+inputs. The jaxpr of a function lists its primitives.
 
 <!-- name: test_extending -->
 ```python
@@ -16,14 +16,14 @@ print(jax.make_jaxpr(gammaln)(1.0))
 ```
 
 This prints `{ lambda ; a:f32[]. let b:f32[] = lgamma a in (b,) }`, so
-`jax.scipy.special.gammaln` is the primitive `lgamma`, which has no rule yet.
+`jax.scipy.special.gammaln` is traced to the primitive `lgamma`, which has no rule yet.
 
 ## A rule for a convex function
 
 A rule is a function of the primitive, its operands and its parameters, as described by
-`jaxormick.RelaxationRule`. Operands that depend on the variables arrive as `Relaxation`
-objects and the others as arrays. The interpreter calls the rule only when at least one
-operand is a `Relaxation`.
+`jaxormick.RelaxationRule`. Operands that depend on the variables are passed as
+`Relaxation` objects and the others as arrays. The interpreter calls the rule only when
+at least one operand is a `Relaxation`.
 
 `lgamma` is convex on positive arguments, with its minimum near 1.4616.
 `jaxormick.compose_convex` relaxes a convex univariate function, given the point of the
@@ -101,7 +101,7 @@ check(digamma, jnp.array(1.0), jnp.array(3.0))
 ```
 
 Registering a rule for a primitive that already has one replaces it. The dictionary
-`jaxormick.RULES` holds the rules, keyed by primitive name.
+`jaxormick.RULES` contains the rules, keyed by primitive name.
 
 ## Custom primitives
 

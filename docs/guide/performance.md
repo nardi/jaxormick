@@ -31,9 +31,9 @@ without recompiling.
 
 ## Batches of boxes
 
-A single call of a small relaxation takes a few microseconds, most of it dispatch.
-Mapping over a batch of boxes with `jax.vmap` spreads that over the whole batch, and on
-a GPU the boxes run in parallel.
+A single call of a small relaxation takes a few microseconds, most of it dispatch. When
+a batch of boxes is mapped with `jax.vmap`, the dispatch happens once for the whole
+batch, and on a GPU the boxes are evaluated in parallel.
 
 <!-- name: test_performance -->
 ```python
@@ -46,11 +46,12 @@ assert lows.shape == (1024,)
 
 ## Products of many factors
 
-A product of power factors with a different exponent for each factor is one `jnp.prod`
-of a power with an exponent array. The rule for `pow` relaxes the elements with the same
-integer exponent, or the same class of non-integer exponent, together, and `reduce_prod`
-combines the factors in a logarithmic number of levels. The exponent array has to be
-known while tracing, as the one here is.
+A product of power factors with a different exponent for each factor can be written as
+one `jnp.prod` of a power with an exponent array. The rule for `pow` relaxes the
+elements with the same integer exponent, or the same class of non-integer exponent,
+together, and the rule for `reduce_prod` multiplies the factors in pairs, in a
+logarithmic number of rounds. The exponent array has to be known while tracing, as the
+one here is.
 
 <!-- name: test_performance -->
 ```python
@@ -66,11 +67,11 @@ assert gradient.shape == (size,)
 ```
 
 A Python loop of `*` over the same factors compiles much more slowly. Each `mul` adds
-one product step to a chain as long as the product, and XLA's compile time grows much
-faster than the program does. The table gives the lines of StableHLO of
-`jmk.convex_side` and the time to lower and compile it on the CPU of the machine above,
-with `float64`. The left fold of `*` is not measured beyond 24 factors, and the stack of
-separate scalar powers beyond 30.
+one relaxed product to a chain of equations as long as the product, and XLA's compile
+time grows much faster than the program does. The table gives the lines of StableHLO of
+`jmk.convex_side` and the time to lower and compile it with `float64`, on the CPU that
+[measured costs](#measured-costs) describes. The left fold of `*` is not measured beyond
+24 factors, and the stack of separate scalar powers beyond 30.
 
 | Factors | Left fold of `*` | `jnp.prod` of stacked powers | `jnp.prod` with an array exponent |
 | --- | --- | --- | --- |
@@ -88,8 +89,7 @@ share it.
 
 `interval`, `convex_side` and `concave_side` compute less than `relax` and
 `affine_relaxation`, since XLA removes the parts of the rules that their outputs do not
-need. Asking for a gradient costs a pass of automatic differentiation on top of the
-relaxation.
+need. A gradient costs one pass of automatic differentiation on top of the relaxation.
 
 Forward mode, the default for gradients, is faster for functions of up to a few dozen
 variables. Reverse mode is faster for many variables, as for the quadratic form in 100
@@ -120,8 +120,8 @@ reaches such boxes after a few splits. The sum of 50 exponentials shows the cost
 Hessian with 2500 entries, for no gain on these boxes.
 
 `tighten_bounds=True` relaxes every value a second time at the middle of the box and
-pushes one subgradient per variable through each rule. The table compares `relax` with
-and without it on the same batches. The last two columns give the mean width of the
+propagates one subgradient per variable through each rule. The table compares `relax`
+with and without it on the same batches. The last two columns give the mean width of the
 interval of the output with tightened bounds, relative to the width without them.
 
 | Function | Run time | Compile time | Width, width 1 | Width, width 0.1 |

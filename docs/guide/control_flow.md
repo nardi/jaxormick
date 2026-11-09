@@ -3,9 +3,9 @@
 ## Function calls
 
 `jaxormick` relaxes nested `jax.jit` functions, `jax.checkpoint`, `jax.custom_jvp` and
-`jax.custom_vjp` by relaxing the function they wrap. It ignores custom derivative rules,
-because the relaxations take only their values from the function. Their gradients come
-from differentiating the relaxation itself.
+`jax.custom_vjp` by relaxing the function they wrap. Custom derivative rules are not
+used, because only the values of the wrapped function enter the relaxations. The
+gradients of the relaxations are computed by differentiating the relaxation itself.
 
 <!-- name: test_control_flow -->
 ```python
@@ -55,13 +55,14 @@ iterations from a better starting point.
 
 `lax.while_loop` raises `UnsupportedPrimitiveError` when its body depends on the
 variables, since the number of steps is not known while tracing. A `fori_loop` with
-traced bounds turns into a `while_loop` and has the same limit.
+traced bounds is traced as a `while_loop` and has the same limit.
 
 ## Conditionals
 
 `lax.cond` and `lax.switch` are supported when the branch index does not depend on the
-variables. With a Python constant as index, tracing picks the branch. With a traced
-constant argument as index, the relaxed branches run under `lax.switch`.
+variables. With a Python constant as index, the branch is selected while tracing. With a
+traced constant argument as index, the relaxed branches are evaluated under
+`lax.switch`.
 
 <!-- name: test_control_flow -->
 ```python
@@ -75,10 +76,10 @@ absolute = relaxed(jnp.array([0.5]), jnp.array([-1.0]), jnp.array([1.0]), False)
 assert square.convex == 0.25 and absolute.convex == 0.5
 ```
 
-A condition that depends on the variables would make the function jump, and McCormick's
-rules need continuous functions. Such branches raise `UnsupportedPrimitiveError`.
-`jnp.where` with a condition on the variables raises in the same way. Many such
-conditions are a maximum or a minimum in disguise and can be rewritten with
+A condition that depends on the variables would make the function discontinuous, and
+McCormick's rules need continuous functions. Such branches raise
+`UnsupportedPrimitiveError`. `jnp.where` with a condition on the variables raises in the
+same way. Many such conditions compute a maximum or a minimum and can be rewritten with
 `jnp.maximum`, `jnp.minimum`, `jnp.abs` or `jax.nn.relu`.
 
 <!-- name: test_control_flow -->
@@ -113,9 +114,9 @@ assert jnp.all(relaxation.convex <= solution + 1e-6)
 assert jnp.all(solution <= relaxation.concave + 1e-6)
 ```
 
-`lax.custom_root` needs `jax>=0.11`, where the residual is visible to `jaxormick`. With
-older versions it raises `UnsupportedPrimitiveError`. The solver must find the root near
-the solution at the middle of the box, which `jaxormick` verifies.
+`lax.custom_root` needs `jax>=0.11`, where its residual is included in the jaxpr. With
+older versions it raises `UnsupportedPrimitiveError`. `jaxormick` runs the solver at the
+middle of the box and verifies an enclosure around the root that it returns.
 
 <!-- name: test_custom_root; mark: skipif(__import__("jax").__version_info__ < (0, 11), reason="needs jax>=0.11") -->
 ```python
@@ -141,5 +142,5 @@ assert relaxation.convex <= cube_root(jnp.array([2.1])) <= relaxation.concave
 ```
 
 The verification fails on boxes that are too wide, and the bounds and relaxations of the
-solution are then infinite. Smaller boxes, as branch and bound produces them, make it
-succeed. [Implicit functions](../theory/implicit.md) explains the method.
+solution are then infinite. On smaller boxes, such as the ones that branch and bound
+produces, it succeeds. [Implicit functions](../theory/implicit.md) explains the method.
