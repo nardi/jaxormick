@@ -5,8 +5,9 @@ McCormick relaxations of [JAX](https://docs.jax.dev/en/latest/) functions.
 `jaxormick` turns a JAX function into functions that compute, over a box of inputs,
 bounds on its values and convex and concave relaxations with their subgradients. These
 are the lower bounds and cuts that a branch-and-bound solver needs to prove a global
-optimum of a nonconvex function. The relaxations are JAX functions too, so they compile
-with `jax.jit`, batch over many boxes with `jax.vmap` and differentiate with `jax.grad`.
+optimum of a nonconvex function. The relaxations are JAX functions too, so they can be
+compiled with `jax.jit`, batched over many boxes with `jax.vmap` and differentiated with
+`jax.grad`.
 
 The transformations are:
 
@@ -18,14 +19,14 @@ The transformations are:
 - [`convex_side`][jaxormick.convex_side] and [`concave_side`][jaxormick.concave_side],
   which return one relaxation and its gradient.
 
-`intersect_relaxations` combines relaxations of several forms of a function.
-`alpha_bb=True` intersects the McCormick relaxation with an αBB relaxation, and
-`tighten_bounds=True` narrows intermediate intervals with subgradients. See [tighter
-relaxations](guide/tightening.md).
+`intersect_relaxations` combines relaxations of several forms of a function. With
+`alpha_bb=True`, the McCormick relaxation is intersected with an αBB relaxation. With
+`tighten_bounds=True`, the intervals of intermediate values are narrowed with
+subgradients. See [tighter relaxations](guide/tightening.md).
 
-Solutions of equations from `jnp.linalg.solve`, `lax.custom_linear_solve` and
-`lax.custom_root` relax through their residual. See [implicit
-functions](theory/implicit.md).
+The solutions of equations that `jnp.linalg.solve`, `lax.custom_linear_solve` and
+`lax.custom_root` compute are relaxed from the residual of the equations, not from the
+steps of the solver. See [implicit functions](theory/implicit.md).
 
 ## Installation
 
@@ -34,7 +35,7 @@ pip install jaxormick
 ```
 
 JAXormick needs Python 3.11 or newer and works with JAX 0.10 and 0.11. Before JAX 0.11,
-`lax.custom_root` is not supported, as [supported operations](guide/supported.md) lists.
+`lax.custom_root` is not supported. See [supported operations](guide/supported.md).
 
 ## Quick example
 
@@ -63,10 +64,10 @@ planes = jmk.affine_relaxation(f)(reference, lower, upper)
 print(planes.convex_gradient)
 ```
 
-The function lies in \([-1, 2.718]\) on the whole box. At the reference point, the
-convex relaxation is \(-0.816\) and the concave one \(1.359\), around the function value
-\(0.5\). The plane through \(-0.816\) with slope `planes.convex_gradient` stays below
-\(f\) everywhere on the box.
+The interval bounds show that the function is in \([-1, 2.718]\) on the whole box. At
+the reference point, the convex relaxation is \(-0.816\) and the concave one \(1.359\),
+around the function value \(0.5\). The plane through \(-0.816\) at the reference point
+with slope `planes.convex_gradient` is below \(f\) everywhere on the box.
 
 ## Further reading
 
@@ -74,8 +75,9 @@ convex relaxation is \(-0.816\) and the concave one \(1.359\), around the functi
   global optimization uses them.
 - [McCormick relaxations](theory/mccormick.md) shows how they are built, with a worked
   example.
-- [Relaxations in JAX](theory/jax.md) explains why JAX suits them.
-- The [user guide](guide/basic.md) covers the transformations, control flow and the
+- [Relaxations in JAX](theory/jax.md) explains how `jaxormick` relaxes the jaxpr of a
+  function and computes subgradients by automatic differentiation.
+- The [user guide](guide/basic.md) describes the transformations, control flow and the
   [supported operations](guide/supported.md).
 
 `jaxormick` computes the bounds in floating point without outward rounding, so they are

@@ -2,10 +2,10 @@
 
 ## Constant arguments
 
-The relaxed function passes arguments after the variables to the function unchanged.
-They count as constants, so `jaxormick` relaxes over the variables only. Because they
-are runtime arguments to a compiled function, changing their values does not cause a
-retrace or a recompile.
+The arguments after the variables are passed to the function unchanged. They are treated
+as constants, so `jaxormick` relaxes over the variables only. Because they are runtime
+arguments to a compiled function, changing their values does not cause a retrace or a
+recompile.
 
 <!-- name: test_parameters -->
 ```python
@@ -47,9 +47,9 @@ assert relaxations.lower.shape == (3,)
 
 ## Many boxes
 
-Branch and bound keeps a list of open boxes. Evaluating them one at a time spends most
-of the time in Python and dispatch. Mapping over a batch of boxes runs them in one
-compiled call.
+Branch and bound keeps a list of open boxes. When the boxes are evaluated one at a time,
+most of the time is spent in Python and in dispatch. Mapping over a batch of boxes
+evaluates them in one compiled call.
 
 <!-- name: test_parameters -->
 ```python
