@@ -33,7 +33,7 @@ method on a square root, where five relaxed steps bound \(\sqrt{x}\) on \([1, 4]
 about \([0.26, 8.6]\). The residual describes the solution itself, so a relaxation built
 from it does not depend on how many steps the solver takes.
 
-The method has three parts, and the rest of this page goes through them.
+The method has three parts, which the rest of this page describes.
 
 1. A box \(X\) is found that contains exactly one solution for every \(p\) in the box of
    parameters. This box is called an enclosure, and it bounds \(x(p)\).
@@ -228,8 +228,8 @@ two convex sides is a tighter one.
 
 `jaxormick` starts from the bounds of the enclosure, which are constant relaxations. It
 then takes 5 relaxed steps and intersects the relaxations after each. The middle of the
-enclosure and the matrix \(Y\) depend only on the box, so the relaxations are convex and
-concave in the reference point.
+enclosure and the matrix \(Y\) depend only on the box, so they are constants in the
+relaxed operator, and McCormick's rules give convex and concave relaxations of it.
 
 ## Implementation in `jaxormick`
 
@@ -261,16 +261,17 @@ roots of `lax.custom_root` at the top level of the function take part, and
 
 ### Cost and limits
 
-The residual's Jacobian is a dense matrix, so a solution with \(n\) entries costs an
+The residual's Jacobian is a dense matrix, so a solution with \(n\) entries requires an
 \(n \times n\) Jacobian of relaxations in each step. The ε-inflation and the relaxed
 steps run in `lax.fori_loop`, so the relaxation of the operator is traced twice, once
 for each loop body.
 
 - On wide boxes, the operator may not contract, and the bounds and relaxations of the
   solution are infinite.
-- A singular Jacobian at the middle of the box has no inverse. The entries of \(Y\) that
-  are not finite are set to zero, and with \(Y = 0\) the operator returns \(X\) itself,
-  which never lies strictly inside \(X\). The bounds are then infinite as well.
+- A singular Jacobian at the middle of the box has no inverse, and the elimination that
+  computes \(Y\) then gives entries that are not finite. These entries are set to zero.
+  When all of them are zero, the operator returns \(X\) itself, which never lies
+  strictly inside \(X\), and the bounds are infinite as well.
 - The relaxation describes the solution in the enclosure around the root that the solver
   returns at the middle of the box. If the equation has several solutions, the solver
   has to return the one that the program means.
